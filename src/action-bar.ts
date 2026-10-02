@@ -11,6 +11,7 @@ interface ActionButton {
 
 const BUTTONS: ActionButton[] = [
 	{ label: "lint", commandId: "lint-this-page" },
+	{ label: "new page", commandId: "new-wiki-page", wikiOnly: true },
 ];
 
 interface CommandApi {
