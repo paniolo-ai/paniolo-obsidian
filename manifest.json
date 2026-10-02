@@ -1,0 +1,10 @@
+{
+	"id": "paniolo-obsidian",
+	"name": "Paniolo",
+	"version": "0.1.0",
+	"minAppVersion": "1.4.0",
+	"description": "Paniolo CLI surfaces in the editor — wiki lint, staleness, and workspace search where the human reads.",
+	"author": "Paniolo",
+	"authorUrl": "https://paniolo.ai",
+	"isDesktopOnly": true
+}
