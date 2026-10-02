@@ -21,11 +21,13 @@ import {
 	resolveBinary,
 	runPaniolo,
 } from "./paniolo";
+import { ActionBar } from "./action-bar";
 import { DEFAULT_SETTINGS, PanioloSettingTab, PanioloSettings } from "./settings";
 
 export default class PanioloPlugin extends Plugin {
 	settings: PanioloSettings = DEFAULT_SETTINGS;
 	private statusItem: HTMLElement | null = null;
+	private actionBar = new ActionBar(this);
 	private findingsByPath = new Map<string, Finding[]>();
 
 	async onload(): Promise<void> {
@@ -48,10 +50,12 @@ export default class PanioloPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on("file-open", () => this.applyStored()),
 		);
+		this.actionBar.register();
 	}
 
 	onunload(): void {
 		this.findingsByPath.clear();
+		this.actionBar.removeAll();
 	}
 
 	async loadSettings(): Promise<void> {
