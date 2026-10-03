@@ -1,0 +1,32 @@
+.paniolo-action-bar {
+	display: flex;
+	gap: 6px;
+	padding: 6px 12px;
+	border-top: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	flex-shrink: 0;
+}
+
+.paniolo-action-button {
+	font-size: var(--font-ui-smaller);
+	padding: 2px 10px;
+	cursor: pointer;
+}
+
+.paniolo-confirm-body {
+	white-space: pre-wrap;
+	font-size: var(--font-ui-small);
+	max-height: 40vh;
+	overflow: auto;
+	margin-bottom: 8px;
+}
+
+.paniolo-report {
+	max-height: 50vh;
+	overflow: auto;
+	white-space: pre-wrap;
+	font-size: var(--font-ui-smaller);
+	background: var(--background-secondary);
+	padding: 8px;
+	border-radius: 4px;
+}
