@@ -7,8 +7,8 @@ import {
 } from "obsidian";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { EditorView } from "@codemirror/view";
-import { existsSync } from "fs";
-import { dirname, join, relative } from "path";
+import { existsSync, readFileSync, writeFileSync } from "fs";
+import { dirname, isAbsolute, join, relative } from "path";
 import {
 	Finding,
 	findingsToDiagnostics,
@@ -209,6 +209,13 @@ export default class PanioloPlugin extends Plugin {
 		if (r.source) args.push("--source", r.source);
 		if (r.domain) args.push("--domain", r.domain);
 
+		const kind = r.wiki.kinds.find((k) => k.kind === r.kind);
+		const filename =
+			kind && !r.slug.startsWith(kind.prefix)
+				? kind.prefix + r.slug
+				: r.slug;
+		if (!(await this.claimSlugNamespace(configRoot, filename))) return;
+
 		this.setStatus("creating…");
 		try {
 			const res = await runPaniolo(binary, args, configRoot);
@@ -225,11 +232,6 @@ export default class PanioloPlugin extends Plugin {
 				return;
 			}
 
-			const kind = r.wiki.kinds.find((k) => k.kind === r.kind);
-			const filename =
-				kind && !r.slug.startsWith(kind.prefix)
-					? kind.prefix + r.slug
-					: r.slug;
 			const adapter = this.app.vault.adapter as FileSystemAdapter;
 			const relRoot = relative(adapter.getBasePath(), configRoot).replace(
 				/\\/g,
@@ -304,6 +306,68 @@ export default class PanioloPlugin extends Plugin {
 	}
 
 	/**
+	 * Vault-wide `[[slug]]` claim before `new`/`rename`. Obsidian resolves
+	 * links by basename, so any markdown file sharing the slug collides —
+	 * not just wiki pages. Layers split the work:
+	 *
+	 * - under a configured `wiki/` root → managed page → hard error
+	 *   (cross-wiki collisions are only visible here; the CLI sees one wiki)
+	 * - under a configured repo's `raw/` → the CLI claims it (renames the
+	 *   snapshot aside and retargets `sources:` citations)
+	 * - anywhere else → the CLI can't see it, so Obsidian renames it aside
+	 *   via `fileManager` — existing `[[slug]]` links follow the rename
+	 *
+	 * Returns false (after a Notice) when a wiki page blocks the claim.
+	 */
+	private async claimSlugNamespace(
+		configRoot: string,
+		slug: string,
+		wikis: WikiConfig[] = loadWikis(configRoot),
+	): Promise<boolean> {
+		const adapter = this.app.vault.adapter;
+		if (!(adapter instanceof FileSystemAdapter)) return true;
+		const base = adapter.getBasePath();
+		const lower = slug.toLowerCase();
+		const wikiRoots = wikis.map((w) => join(configRoot, w.wikiRoot));
+		const rawRoots = wikis.map((w) => join(configRoot, w.repoPath, "raw"));
+
+		const colliding = this.app.vault
+			.getMarkdownFiles()
+			.filter((f) => f.basename.toLowerCase() === lower);
+		const loose: TFile[] = [];
+		for (const f of colliding) {
+			const abs = join(base, f.path);
+			const under = (root: string) => {
+				const rel = relative(root, abs);
+				return !!rel && !rel.startsWith("..") && !isAbsolute(rel);
+			};
+			if (wikiRoots.some(under)) {
+				new Notice(
+					`paniolo: '${slug}' already exists as a wiki page at ${f.path}`,
+					8000,
+				);
+				return false;
+			}
+			if (!rawRoots.some(under)) loose.push(f);
+		}
+
+		for (const f of loose) {
+			// `<stem>-raw`, then `-raw-2`, … until the directory has room.
+			const dir = dirname(f.path);
+			const prefix = dir === "." ? "" : `${dir}/`;
+			let target = "";
+			for (let n = 1; ; n += 1) {
+				const stem = n === 1 ? `${f.basename}-raw` : `${f.basename}-raw-${n}`;
+				target = `${prefix}${stem}.md`.replace(/\\/g, "/");
+				if (!this.app.vault.getAbstractFileByPath(target)) break;
+			}
+			await this.app.fileManager.renameFile(f, target);
+			new Notice(`paniolo: ${f.path} stepped aside → ${target}`, 8000);
+		}
+		return true;
+	}
+
+	/**
 	 * Run a `paniolo wiki <op>`. `status`/`archive`/`delete` are dry-run
 	 * unless `--apply` is passed — callers use that as a preview pass.
 	 * `quiet` suppresses the failure notice (caller renders stdout itself).
@@ -356,7 +420,16 @@ export default class PanioloPlugin extends Plugin {
 		new PromptModal(this.app, `rename ${ctx.slug}`, ctx.slug, (v) => {
 			const next = slugify(v);
 			if (!next || next === ctx.slug) return;
-			void this.runWikiOp(ctx, ["rename", ctx.slug, next]).then(async (r) => {
+			void (async () => {
+				if (
+					!(await this.claimSlugNamespace(
+						ctx.configRoot,
+						next,
+						loadWikis(ctx.configRoot),
+					))
+				)
+					return;
+				const r = await this.runWikiOp(ctx, ["rename", ctx.slug, next]);
 				if (!r.ok) return;
 				new Notice(`paniolo: renamed to ${next}`);
 				const adapter = this.app.vault.adapter as FileSystemAdapter;
