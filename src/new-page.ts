@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Setting, TextComponent } from "obsidian";
 import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { isAbsolute, join, relative } from "path";
 
 export interface WikiConfig {
 	/** Repo name — passed to `paniolo wiki --wiki`. */
@@ -11,11 +11,14 @@ export interface WikiConfig {
 	wikiRoot: string;
 	kinds: { kind: string; prefix: string }[];
 	domains: string[];
+	/** Valid `status:` values — kind vocabularies + fallbackStatuses. */
+	statuses: string[];
 }
 
 interface RawPagePrefix {
 	kind?: string;
 	prefix?: string;
+	statuses?: string[];
 }
 
 /** Parse `paniolo.config.json` into the list of configured wikis. */
@@ -26,17 +29,27 @@ export function loadWikis(configRoot: string): WikiConfig[] {
 		) as {
 			repos?: Record<
 				string,
-				{ path?: string; wiki?: { pagePrefixes?: RawPagePrefix[]; domains?: string[] } }
+				{
+					path?: string;
+					wiki?: {
+						pagePrefixes?: RawPagePrefix[];
+						domains?: string[];
+						fallbackStatuses?: string[];
+					};
+				}
 			>;
 		};
 		const out: WikiConfig[] = [];
 		for (const [name, repo] of Object.entries(raw.repos ?? {})) {
 			if (!repo.wiki || !repo.path) continue;
+			const prefixes = repo.wiki.pagePrefixes ?? [];
+			const statuses = new Set<string>(repo.wiki.fallbackStatuses ?? []);
+			for (const p of prefixes) for (const s of p.statuses ?? []) statuses.add(s);
 			out.push({
 				name,
 				repoPath: repo.path,
 				wikiRoot: `${repo.path}/wiki`,
-				kinds: (repo.wiki.pagePrefixes ?? [])
+				kinds: prefixes
 					.filter((p): p is { kind: string; prefix: string } => !!p.kind && !!p.prefix)
 					.map((p) => ({ kind: p.kind, prefix: p.prefix })),
 				// Declared domains win; otherwise the CLI derives the
@@ -45,6 +58,7 @@ export function loadWikis(configRoot: string): WikiConfig[] {
 				domains:
 					repo.wiki.domains ??
 					listLogDomains(configRoot, repo.path),
+				statuses: [...statuses].sort(),
 			});
 		}
 		return out;
@@ -68,6 +82,40 @@ function listLogDomains(configRoot: string, repoPath: string): string[] {
 	} catch {
 		return [];
 	}
+}
+
+/** The wiki owning an absolute path, or null when outside every root. */
+export function wikiForAbsPath(
+	configRoot: string,
+	absPath: string,
+	wikis: WikiConfig[],
+): WikiConfig | null {
+	for (const w of wikis) {
+		const root = join(configRoot, w.wikiRoot);
+		const rel = relative(root, absPath);
+		if (rel && !rel.startsWith("..") && !isAbsolute(rel)) return w;
+	}
+	return null;
+}
+
+/** Slug form of a file inside a wiki root: path relative to the root, no `.md`. */
+export function slugForAbsPath(
+	configRoot: string,
+	wiki: WikiConfig,
+	absPath: string,
+): string {
+	return relative(join(configRoot, wiki.wikiRoot), absPath)
+		.replace(/\\/g, "/")
+		.replace(/\.md$/i, "");
+}
+
+/** Kebab-case a loose slug — `wiki new` accepts spaces that then collide with prose. */
+export function slugify(slug: string): string {
+	return slug
+		.toLowerCase()
+		.replace(/[\s_]+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "");
 }
 
 export interface NewPageResult {
@@ -208,11 +256,7 @@ export class NewPageModal extends Modal {
 	private submit(): void {
 		// `wiki new` accepts loose slugs (spaces etc.) without complaint —
 		// normalize to kebab-case here so the filename stays canonical.
-		this.slug = this.slug
-			.toLowerCase()
-			.replace(/[\s_]+/g, "-")
-			.replace(/-+/g, "-")
-			.replace(/^-|-$/g, "");
+		this.slug = slugify(this.slug);
 		if (!this.slug) {
 			new Notice("paniolo: slug is required");
 			return;

@@ -1,17 +1,32 @@
-import { MarkdownView, Plugin } from "obsidian";
+import { MarkdownView, Menu, Plugin } from "obsidian";
 
 const BAR_CLASS = "paniolo-action-bar";
 
 interface ActionButton {
 	label: string;
-	commandId: string;
+	commandId?: string;
 	/** Only show when the open file lives under a `wiki/` directory. */
 	wikiOnly?: boolean;
+	/** When set, the button opens a dropdown Menu of command ids. */
+	menu?: { label: string; commandId: string }[];
 }
 
 const BUTTONS: ActionButton[] = [
 	{ label: "lint", commandId: "lint-this-page" },
 	{ label: "new page", commandId: "new-wiki-page", wikiOnly: true },
+	{
+		label: "wiki ops ▸",
+		wikiOnly: true,
+		menu: [
+			{ label: "rename…", commandId: "wiki-rename-page" },
+			{ label: "move to other wiki…", commandId: "wiki-move-page" },
+			{ label: "set status…", commandId: "wiki-set-status" },
+			{ label: "references", commandId: "wiki-refs" },
+			{ label: "apply autofixes", commandId: "wiki-fix" },
+			{ label: "archive…", commandId: "wiki-archive-page" },
+			{ label: "delete…", commandId: "wiki-delete-page" },
+		],
+	},
 ];
 
 interface CommandApi {
@@ -80,13 +95,29 @@ export class ActionBar {
 				cls: "paniolo-action-button",
 				text: spec.label,
 			});
-			btn.addEventListener("click", () => {
+			btn.addEventListener("click", (ev) => {
 				const commands = (
 					this.plugin.app as unknown as { commands: CommandApi }
 				).commands;
-				commands.executeCommandById(
-					`${this.plugin.manifest.id}:${spec.commandId}`,
-				);
+				if (spec.menu) {
+					const menu = new Menu();
+					for (const item of spec.menu) {
+						menu.addItem((i) =>
+							i.setTitle(`paniolo ${item.label}`).onClick(() =>
+								commands.executeCommandById(
+									`${this.plugin.manifest.id}:${item.commandId}`,
+								),
+							),
+						);
+					}
+					menu.showAtMouseEvent(ev);
+					return;
+				}
+				if (spec.commandId) {
+					commands.executeCommandById(
+						`${this.plugin.manifest.id}:${spec.commandId}`,
+					);
+				}
 			});
 		}
 	}
