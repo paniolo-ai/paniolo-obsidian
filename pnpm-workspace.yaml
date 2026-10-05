@@ -1,0 +1,4 @@
+overrides:
+  "@codemirror/state": 6.5.0
+allowBuilds:
+  esbuild: true
