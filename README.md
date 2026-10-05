@@ -25,10 +25,10 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
 ## Development
 
 ```bash
-npm install
-npm run dev      # esbuild watch; copies main.js/manifest.json/styles.css
-                 # into the dev vault's .obsidian/plugins/paniolo-obsidian/
-npm run build    # typecheck + production bundle
+pnpm install
+pnpm run dev      # esbuild watch; copies main.js/manifest.json/styles.css
+                  # into the dev vault's .obsidian/plugins/paniolo-obsidian/
+pnpm run build    # typecheck + production bundle
 ```
 
 Set `PANIOLO_VAULT_PLUGINS` to target a different vault's plugin directory.

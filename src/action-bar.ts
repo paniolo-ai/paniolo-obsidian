@@ -2,31 +2,48 @@ import { MarkdownView, Menu, Plugin } from "obsidian";
 
 const BAR_CLASS = "paniolo-action-bar";
 
-interface ActionButton {
+interface MenuItem {
 	label: string;
-	commandId?: string;
+	commandId: string;
 	/** Only show when the open file lives under a `wiki/` directory. */
 	wikiOnly?: boolean;
-	/** When set, the button opens a dropdown Menu of command ids. */
-	menu?: { label: string; commandId: string }[];
 }
 
-const BUTTONS: ActionButton[] = [
-	{ label: "lint", commandId: "lint-this-page" },
-	{ label: "new page", commandId: "new-wiki-page", wikiOnly: true },
-	{
-		label: "wiki ops ▸",
-		wikiOnly: true,
-		menu: [
-			{ label: "rename…", commandId: "wiki-rename-page" },
-			{ label: "move to other wiki…", commandId: "wiki-move-page" },
-			{ label: "set status…", commandId: "wiki-set-status" },
-			{ label: "references", commandId: "wiki-refs" },
-			{ label: "apply autofixes", commandId: "wiki-fix" },
-			{ label: "archive…", commandId: "wiki-archive-page" },
-			{ label: "delete…", commandId: "wiki-delete-page" },
-		],
-	},
+/** Separator-separated groups inside the single Paniolo menu. */
+const MENU_SECTIONS: MenuItem[][] = [
+	[
+		{ label: "lint this page", commandId: "lint-this-page" },
+		{ label: "new wiki page", commandId: "new-wiki-page", wikiOnly: true },
+	],
+	[
+		{ label: "wiki rename…", commandId: "wiki-rename-page", wikiOnly: true },
+		{
+			label: "wiki move to other wiki…",
+			commandId: "wiki-move-page",
+			wikiOnly: true,
+		},
+		{
+			label: "wiki set status…",
+			commandId: "wiki-set-status",
+			wikiOnly: true,
+		},
+		{ label: "wiki references", commandId: "wiki-refs", wikiOnly: true },
+		{
+			label: "wiki apply autofixes",
+			commandId: "wiki-fix",
+			wikiOnly: true,
+		},
+		{
+			label: "wiki archive…",
+			commandId: "wiki-archive-page",
+			wikiOnly: true,
+		},
+		{
+			label: "wiki delete…",
+			commandId: "wiki-delete-page",
+			wikiOnly: true,
+		},
+	],
 ];
 
 interface CommandApi {
@@ -34,11 +51,11 @@ interface CommandApi {
 }
 
 /**
- * Per-note footer bar appended below the editor in each MarkdownView.
- * Buttons are pure dispatchers onto registered command ids — the same
- * commands the palette exposes — so this file carries no feature logic.
- * As cards land (related pages, suggest-links, wiki ops, staleness),
- * entries join BUTTONS.
+ * Per-note footer appended below the editor in each MarkdownView: a single
+ * "Paniolo ▸" button whose dropdown Menu dispatches onto registered command
+ * ids — the same commands the palette exposes — so this file carries no
+ * feature logic. As cards land (related pages, suggest-links, staleness),
+ * entries join MENU_SECTIONS.
  */
 export class ActionBar {
 	constructor(private plugin: Plugin) {}
@@ -89,36 +106,32 @@ export class ActionBar {
 		bar.show();
 
 		const inWiki = file.path.split("/").includes("wiki");
-		for (const spec of BUTTONS) {
-			if (spec.wikiOnly && !inWiki) continue;
-			const btn = bar.createEl("button", {
-				cls: "paniolo-action-button",
-				text: spec.label,
-			});
-			btn.addEventListener("click", (ev) => {
-				const commands = (
-					this.plugin.app as unknown as { commands: CommandApi }
-				).commands;
-				if (spec.menu) {
-					const menu = new Menu();
-					for (const item of spec.menu) {
-						menu.addItem((i) =>
-							i.setTitle(`paniolo ${item.label}`).onClick(() =>
-								commands.executeCommandById(
-									`${this.plugin.manifest.id}:${item.commandId}`,
-								),
+		const btn = bar.createEl("button", {
+			cls: "paniolo-action-button",
+			text: "Paniolo ▸",
+		});
+		btn.addEventListener("click", (ev) => {
+			const commands = (
+				this.plugin.app as unknown as { commands: CommandApi }
+			).commands;
+			const menu = new Menu();
+			let first = true;
+			for (const section of MENU_SECTIONS) {
+				const items = section.filter((i) => !i.wikiOnly || inWiki);
+				if (!items.length) continue;
+				if (!first) menu.addSeparator();
+				first = false;
+				for (const item of items) {
+					menu.addItem((i) =>
+						i.setTitle(item.label).onClick(() =>
+							commands.executeCommandById(
+								`${this.plugin.manifest.id}:${item.commandId}`,
 							),
-						);
-					}
-					menu.showAtMouseEvent(ev);
-					return;
-				}
-				if (spec.commandId) {
-					commands.executeCommandById(
-						`${this.plugin.manifest.id}:${spec.commandId}`,
+						),
 					);
 				}
-			});
-		}
+			}
+			menu.showAtMouseEvent(ev);
+		});
 	}
 }

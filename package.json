@@ -3,6 +3,7 @@
 	"version": "0.1.0",
 	"description": "Obsidian plugin — a thin shell over the paniolo CLI (lint, staleness, qmd).",
 	"main": "main.js",
+	"packageManager": "pnpm@12.8.1",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
@@ -18,8 +19,5 @@
 		"obsidian": "^1.7.2",
 		"tslib": "^2.8.1",
 		"typescript": "^5.7.2"
-	},
-	"overrides": {
-		"@codemirror/state": "6.5.0"
 	}
 }
