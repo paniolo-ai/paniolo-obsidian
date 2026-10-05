@@ -11,11 +11,9 @@ interface MenuItem {
 
 /** Separator-separated groups inside the single Paniolo menu. */
 const MENU_SECTIONS: MenuItem[][] = [
+	[{ label: "lint this page", commandId: "lint-this-page" }],
 	[
-		{ label: "lint this page", commandId: "lint-this-page" },
-		{ label: "new wiki page", commandId: "new-wiki-page", wikiOnly: true },
-	],
-	[
+		{ label: "wiki new page", commandId: "new-wiki-page", wikiOnly: true },
 		{ label: "wiki rename…", commandId: "wiki-rename-page", wikiOnly: true },
 		{
 			label: "wiki move to other wiki…",
