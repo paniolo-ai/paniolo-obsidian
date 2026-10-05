@@ -102,7 +102,7 @@ export default class PanioloPlugin extends Plugin {
 				for (const [id, name, fn] of ops) {
 					menu.addItem((i) =>
 						i
-							.setTitle(name.replace("Wiki: ", "paniolo: "))
+							.setTitle(name.replace("Wiki: ", "wiki: "))
 							.onClick(() => fn(file)),
 					);
 				}
