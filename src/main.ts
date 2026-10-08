@@ -93,6 +93,18 @@ export default class PanioloPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "wiki-related-pages",
+			name: "Add or update related pages",
+			callback: () => new Notice("Coming soon…"),
+		});
+
+		this.addCommand({
+			id: "fix-page-staleness",
+			name: "Fix page staleness",
+			callback: () => new Notice("Coming soon…"),
+		});
+
+		this.addCommand({
 			id: "search-pages-related-to-selection",
 			name: "Search for pages related to selection",
 			callback: () => this.searchPagesRelatedToSelection(),

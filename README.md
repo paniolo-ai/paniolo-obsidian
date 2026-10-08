@@ -24,6 +24,10 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   open file is under a `wiki/` root, so ordinary notes never see them.
 - **Search for related pages** — uses the open note's title and opening text
   to query qmd, then opens one of the top ranked wiki pages in the vault.
+- **Add or update related pages** — a menu placeholder that shows
+  **Coming soon…**; it does not edit the page yet.
+- **Fix page staleness** — a menu placeholder that shows **Coming soon…**;
+  it does not run the staleness lane yet.
 - **Search pages** — searches configured wiki pages by keyword or hybrid qmd
   ranking. Results show an excerpt and can be opened or linked into the active
   note.
