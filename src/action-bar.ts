@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Plugin } from "obsidian";
+import { MarkdownView, Menu, Plugin, type TFile } from "obsidian";
 
 const BAR_CLASS = "paniolo-action-bar";
 
@@ -18,6 +18,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 			commandId: "wiki-fix",
 			wikiOnly: true,
 		},
+		{ label: "fix page staleness…", commandId: "fix-page-staleness", wikiOnly: true },
 	],
 	[
 		{ label: "search pages…", commandId: "search-pages" },
@@ -26,6 +27,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 			label: "search for pages related to selection…",
 			commandId: "search-pages-related-to-selection",
 		},
+		{ label: "add related pages…", commandId: "wiki-related-pages", wikiOnly: true },
 	],
 	[
 		{ label: "new page", commandId: "new-wiki-page", wikiOnly: true },
@@ -131,8 +133,11 @@ export class ActionBar {
 				if (!first) menu.addSeparator();
 				first = false;
 				for (const item of items) {
+					const label = item.commandId === "wiki-related-pages"
+						? this.relatedPagesLabel(file)
+						: item.label;
 					menu.addItem((i) =>
-						i.setTitle(item.label).onClick(() =>
+						i.setTitle(label).onClick(() =>
 							commands.executeCommandById(
 								`${this.plugin.manifest.id}:${item.commandId}`,
 							),
@@ -142,5 +147,15 @@ export class ActionBar {
 			}
 			menu.showAtMouseEvent(ev);
 		});
+	}
+
+	/** Choose the placeholder label from the saved page's H2 headings. */
+	private relatedPagesLabel(file: TFile): string {
+		const headings = this.plugin.app.metadataCache.getFileCache(file)?.headings ?? [];
+		return headings.some((heading) =>
+			heading.level === 2 && heading.heading.trim() === "Related pages",
+		)
+			? "update related pages…"
+			: "add related pages…";
 	}
 }
