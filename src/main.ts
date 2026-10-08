@@ -23,6 +23,7 @@ import {
 	runPaniolo,
 } from "./paniolo";
 import { ActionBar } from "./action-bar";
+import { showPageReferences } from "./page-references";
 import { searchRelatedPages } from "./related-pages";
 import {
 	NewPageModal,
@@ -87,7 +88,7 @@ export default class PanioloPlugin extends Plugin {
 			["wiki-archive-page", "Archive page", (f) => this.wikiArchive(f)],
 			["wiki-delete-page", "Delete page", (f) => this.wikiDelete(f)],
 			["wiki-set-status", "Set page status", (f) => this.wikiSetStatus(f)],
-			["wiki-refs", "Show page references", (f) => void this.wikiRefs(f)],
+			["wiki-refs", "Search for page references", (f) => void this.wikiRefs(f)],
 			["wiki-fix", "Apply autofixes to page", (f) => void this.wikiFix(f)],
 		];
 		for (const [id, name, fn] of ops) {
@@ -599,8 +600,27 @@ export default class PanioloPlugin extends Plugin {
 	private async wikiRefs(file: TFile): Promise<void> {
 		const ctx = this.wikiContext(file);
 		if (!ctx) return;
-		const r = await this.runWikiOp(ctx, ["refs", ctx.slug]);
-		if (r.ok) new ReportModal(this.app, `references to ${ctx.slug}`, r.stdout).open();
+		const r = await this.runWikiOp(ctx, ["refs", ctx.slug, "--json"]);
+		if (!r.ok) return;
+		const adapter = this.app.vault.adapter;
+		if (!(adapter instanceof FileSystemAdapter)) {
+			new Notice("paniolo: unsupported vault adapter");
+			return;
+		}
+		try {
+			showPageReferences({
+				app: this.app,
+				slug: ctx.slug,
+				json: r.stdout,
+				configRoot: ctx.configRoot,
+				vaultRoot: adapter.getBasePath(),
+			});
+		} catch (error: unknown) {
+			new Notice(
+				`paniolo: could not show references — ${error instanceof Error ? error.message : String(error)}`,
+				8000,
+			);
+		}
 	}
 
 	private async wikiFix(file: TFile): Promise<void> {

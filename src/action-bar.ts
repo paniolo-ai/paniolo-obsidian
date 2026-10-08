@@ -33,7 +33,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 			commandId: "wiki-set-status",
 			wikiOnly: true,
 		},
-		{ label: "show page references", commandId: "wiki-refs", wikiOnly: true },
+		{ label: "search for page references…", commandId: "wiki-refs", wikiOnly: true },
 		{
 			label: "archive page…",
 			commandId: "wiki-archive-page",

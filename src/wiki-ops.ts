@@ -115,7 +115,7 @@ export class ConfirmModal extends Modal {
 	}
 }
 
-/** Scrollable text report (refs listing, delete hold-back report). */
+/** Scrollable text report for a page operation's hold-back details. */
 export class ReportModal extends Modal {
 	constructor(
 		app: App,

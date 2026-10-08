@@ -28,7 +28,7 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   aside so existing `[[slug]]` links follow, while a managed page blocks
   the claim outright.
 - **Wiki ops on the open page** — rename, move to another wiki, set status,
-  show references, apply safe autofixes, archive, and delete — from the
+  open referencing pages, apply safe autofixes, archive, and delete — from the
   palette, the action bar, or the file-explorer context menu. Archive and
   delete show the CLI's dry-run plan in a confirm dialog before `--apply`
   ever runs.
