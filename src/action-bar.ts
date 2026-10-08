@@ -20,6 +20,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 		},
 	],
 	[
+		{ label: "search pages…", commandId: "search-pages" },
 		{ label: "search for related pages…", commandId: "search-related-pages" },
 		{
 			label: "search for pages related to selection…",

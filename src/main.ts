@@ -26,6 +26,7 @@ import { ActionBar } from "./action-bar";
 import { showPageReferences } from "./page-references";
 import { showPageSources } from "./page-sources";
 import { searchRelatedPages } from "./related-pages";
+import { SearchPagesModal } from "./search-pages";
 import {
 	NewPageModal,
 	NewPageResult,
@@ -75,6 +76,12 @@ export default class PanioloPlugin extends Plugin {
 			id: "new-wiki-page",
 			name: "New page",
 			callback: () => this.openNewPageModal(),
+		});
+
+		this.addCommand({
+			id: "search-pages",
+			name: "Search pages",
+			callback: () => this.openSearchPages(),
 		});
 
 		this.addCommand({
@@ -174,6 +181,36 @@ export default class PanioloPlugin extends Plugin {
 		const adapter = this.app.vault.adapter;
 		if (!(adapter instanceof FileSystemAdapter)) return null;
 		return join(adapter.getBasePath(), file.path);
+	}
+
+	/** Open free-text qmd search over wiki pages this vault can navigate. */
+	private openSearchPages(): void {
+		const adapter = this.app.vault.adapter;
+		if (!(adapter instanceof FileSystemAdapter)) {
+			new Notice("paniolo: unsupported vault adapter");
+			return;
+		}
+		const sourceView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const sourceFile = sourceView?.file;
+		const startDir = sourceFile
+			? dirname(join(adapter.getBasePath(), sourceFile.path))
+			: adapter.getBasePath();
+		const configRoot = findConfigRoot(startDir);
+		if (!configRoot) {
+			new Notice("paniolo: no paniolo.config.json found for this vault");
+			return;
+		}
+		if (!loadWikis(configRoot).length) {
+			new Notice("paniolo: no wikis declared in paniolo.config.json");
+			return;
+		}
+		new SearchPagesModal({
+			app: this.app,
+			configRoot,
+			vaultRoot: adapter.getBasePath(),
+			binary: resolveBinary(this.settings.binaryPath),
+			sourceView,
+		}).open();
 	}
 
 	/** Capture the editor selection before opening the delayed results menu. */
