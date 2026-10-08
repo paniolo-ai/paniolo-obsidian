@@ -40,19 +40,6 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   the file to find it. Unconfigured vaults get a visible Notice, never a
   silent no-op.
 
-## Paniolo.ai
-
-Everything in this repo runs locally and stays free — the plugin and the
-`paniolo` CLI are the individual tier.
-
-[Paniolo.ai](https://paniolo.ai) is the hosted counterpart for teams: it
-carries what a single checkout can't. Shared staleness and lifecycle lanes
-that open remediation PRs on a schedule, org-wide qmd indexes across repos,
-wiki and scan checks as hosted CI, team wiki distribution into members'
-vaults, and a private org skill registry. Members' CLIs and agent accounts
-stay on their own machines; the service hosts the shared state, the
-proposal/review queue, and the cross-repo rollups.
-
 ## Install
 
 Until it lands in the community directory, install manually:
@@ -82,3 +69,9 @@ Thin-adapter rule, per the harness: JS only as a shell around the Rust
 products (`paniolo scan` / `wiki` / `stale` / `qmd`). The product rationale
 and MVP card list live in the paniolo-wiki repo as
 `design-paniolo-obsidian-plugin` and `plan-paniolo-obsidian-plugin`.
+
+## Paniolo.ai
+
+The plugin and `paniolo` CLI are free and run locally. Paniolo builds tools
+for keeping knowledge produced with AI agents accurate and useful. Learn more
+at [Paniolo.ai](https://paniolo.ai).
