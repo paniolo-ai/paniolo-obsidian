@@ -19,6 +19,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 			wikiOnly: true,
 		},
 	],
+	[{ label: "search for related pages…", commandId: "search-related-pages" }],
 	[
 		{ label: "new page", commandId: "new-wiki-page", wikiOnly: true },
 		{ label: "rename page…", commandId: "wiki-rename-page", wikiOnly: true },
@@ -32,7 +33,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 			commandId: "wiki-set-status",
 			wikiOnly: true,
 		},
-		{ label: "show page references", commandId: "wiki-refs", wikiOnly: true },
+		{ label: "search for page references…", commandId: "wiki-refs", wikiOnly: true },
 		{
 			label: "archive page…",
 			commandId: "wiki-archive-page",
