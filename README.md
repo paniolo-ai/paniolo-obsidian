@@ -5,22 +5,62 @@ paniolo's lint, staleness, and workspace-search surfaces into the reader where
 the human actually is. Every feature is `execFile → paniolo → render`; no
 business logic lives in the plugin.
 
+Agents write, humans read. Paniolo keeps the knowledge your agents produce
+verified and disciplined; this plugin puts the checks where you read it.
+
 Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
 
 ## Features
 
-- **Lint this page** — command runs `paniolo scan` (per-file) and `paniolo
-  wiki` (when the file lives under a `wiki/` root) against the nearest
-  `paniolo.config.json`, then renders findings as CodeMirror diagnostics:
-  squiggles, hover messages, and a lint gutter. Findings count appears in the
-  status bar.
+- **Lint this page** — runs `paniolo scan` per-file, plus `paniolo wiki`
+  when the file lives under a `wiki/` root, against the nearest
+  `paniolo.config.json`. Findings render as CodeMirror diagnostics —
+  squiggles, hover messages, and a lint gutter — with the error/warn count
+  in the status bar.
+- **Paniolo ▸ action bar** — a per-note footer button that opens a menu over
+  the same commands the palette exposes. Wiki entries only appear when the
+  open file is under a `wiki/` root, so ordinary notes never see them.
+- **New wiki page** — a modal front-end for `paniolo wiki new`: pick the
+  wiki, kind, slug, tags, title, and source. Before stamping the page, the
+  plugin claims the slug vault-wide — colliding loose notes are renamed
+  aside so existing `[[slug]]` links follow, while a managed page blocks
+  the claim outright.
+- **Wiki ops on the open page** — rename, move to another wiki, set status,
+  show references, apply safe autofixes, archive, and delete — from the
+  palette, the action bar, or the file-explorer context menu. Archive and
+  delete show the CLI's dry-run plan in a confirm dialog before `--apply`
+  ever runs.
 
 ## Requirements
 
-- `paniolo` on `PATH` (or an explicit path in the plugin settings).
-- A `paniolo.config.json` above the edited file — the plugin walks up from the
-  file to find it. Unconfigured vaults get a visible Notice, never a silent
-  no-op.
+- `paniolo` on `PATH` (or an explicit path in the plugin settings). Install
+  it with `npm install -g @paniolo/cli`, or try the read-only scan first:
+  `npx @paniolo/cli scan .`
+- A `paniolo.config.json` above the edited file — the plugin walks up from
+  the file to find it. Unconfigured vaults get a visible Notice, never a
+  silent no-op.
+
+## Paniolo.ai
+
+Everything in this repo runs locally and stays free — the plugin and the
+`paniolo` CLI are the individual tier.
+
+[Paniolo.ai](https://paniolo.ai) is the hosted counterpart for teams: it
+carries what a single checkout can't. Shared staleness and lifecycle lanes
+that open remediation PRs on a schedule, org-wide qmd indexes across repos,
+wiki and scan checks as hosted CI, team wiki distribution into members'
+vaults, and a private org skill registry. Members' CLIs and agent accounts
+stay on their own machines; the service hosts the shared state, the
+proposal/review queue, and the cross-repo rollups.
+
+## Install
+
+Until it lands in the community directory, install manually:
+
+1. Build from source (below) or grab `main.js`, `manifest.json`, and
+   `styles.css` from a release.
+1. Copy them into `<vault>/.obsidian/plugins/paniolo-obsidian/`.
+1. Enable **Paniolo** under Settings → Community plugins.
 
 ## Development
 
@@ -39,6 +79,6 @@ plugins, or use the Hot-Reload plugin).
 ## Design
 
 Thin-adapter rule, per the harness: JS only as a shell around the Rust
-products (`paniolo scan` / `wiki` / `stale` / `qmd`). See
-`paniolo-wiki/wiki/plan-paniolo-obsidian-plugin.md` for the full card list and
-`design-paniolo-obsidian-plugin.md` for the product rationale.
+products (`paniolo scan` / `wiki` / `stale` / `qmd`). The product rationale
+and MVP card list live in the paniolo-wiki repo as
+`design-paniolo-obsidian-plugin` and `plan-paniolo-obsidian-plugin`.
