@@ -24,6 +24,9 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   open file is under a `wiki/` root, so ordinary notes never see them.
 - **Search for related pages** — uses the open note's title and opening text
   to query qmd, then opens one of the top ranked wiki pages in the vault.
+- **Search pages** — searches configured wiki pages by keyword or hybrid qmd
+  ranking. Results show an excerpt and can be opened or linked into the active
+  note.
 - **Search for pages related to selection** — uses highlighted text in the
   editor to find and open ranked wiki pages about that passage.
 - **View sources for page** — lists a wiki page's `sources:` citations. Open

@@ -44,3 +44,17 @@
 .paniolo-source-list .setting-item-name {
 	overflow-wrap: anywhere;
 }
+
+.paniolo-search-results {
+	max-height: 60vh;
+	overflow-y: auto;
+}
+
+.paniolo-search-results .setting-item-info {
+	min-width: 0;
+}
+
+.paniolo-search-results .setting-item-name,
+.paniolo-search-results .setting-item-description {
+	overflow-wrap: anywhere;
+}
