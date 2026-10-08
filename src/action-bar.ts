@@ -19,6 +19,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 			wikiOnly: true,
 		},
 	],
+	[{ label: "search for related pages…", commandId: "search-related-pages" }],
 	[
 		{ label: "new page", commandId: "new-wiki-page", wikiOnly: true },
 		{ label: "rename page…", commandId: "wiki-rename-page", wikiOnly: true },

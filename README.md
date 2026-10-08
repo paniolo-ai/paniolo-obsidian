@@ -20,6 +20,8 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
 - **Paniolo ▸ action bar** — a per-note footer button that opens a menu over
   the same commands the palette exposes. Wiki entries only appear when the
   open file is under a `wiki/` root, so ordinary notes never see them.
+- **Search for related pages** — uses the open note's title and opening text
+  to query qmd, then opens one of the top ranked wiki pages in the vault.
 - **New wiki page** — a modal front-end for `paniolo wiki new`: pick the
   wiki, kind, slug, tags, title, and source. Before stamping the page, the
   plugin claims the slug vault-wide — colliding loose notes are renamed

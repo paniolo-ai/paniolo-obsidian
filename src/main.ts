@@ -23,6 +23,7 @@ import {
 	runPaniolo,
 } from "./paniolo";
 import { ActionBar } from "./action-bar";
+import { searchRelatedPages } from "./related-pages";
 import {
 	NewPageModal,
 	NewPageResult,
@@ -70,6 +71,14 @@ export default class PanioloPlugin extends Plugin {
 			id: "new-wiki-page",
 			name: "New page",
 			callback: () => this.openNewPageModal(),
+		});
+
+		this.addCommand({
+			id: "search-related-pages",
+			name: "Search for related pages",
+			callback: () => {
+				void this.searchRelatedPages();
+			},
 		});
 
 		const ops: [string, string, (f: TFile) => void][] = [
@@ -144,6 +153,33 @@ export default class PanioloPlugin extends Plugin {
 		const adapter = this.app.vault.adapter;
 		if (!(adapter instanceof FileSystemAdapter)) return null;
 		return join(adapter.getBasePath(), file.path);
+	}
+
+	/** Search from the open note and offer ranked, vault-resolvable wiki pages. */
+	private async searchRelatedPages(): Promise<void> {
+		const file = this.app.workspace.getActiveFile();
+		if (!(file instanceof TFile) || file.extension !== "md") {
+			new Notice("paniolo: open a markdown page to search from");
+			return;
+		}
+		const absPath = this.activeAbsPath(file);
+		const adapter = this.app.vault.adapter;
+		if (!absPath || !(adapter instanceof FileSystemAdapter)) {
+			new Notice("paniolo: unsupported vault adapter");
+			return;
+		}
+		const configRoot = findConfigRoot(dirname(absPath));
+		if (!configRoot) {
+			new Notice("paniolo: no paniolo.config.json above this page");
+			return;
+		}
+		await searchRelatedPages({
+			app: this.app,
+			file,
+			configRoot,
+			vaultRoot: adapter.getBasePath(),
+			binary: resolveBinary(this.settings.binaryPath),
+		});
 	}
 
 	private applyStored(): void {
