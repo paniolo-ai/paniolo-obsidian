@@ -11,33 +11,35 @@ interface MenuItem {
 
 /** Separator-separated groups inside the single Paniolo menu. */
 const MENU_SECTIONS: MenuItem[][] = [
-	[{ label: "lint this page", commandId: "lint-this-page" }],
 	[
-		{ label: "wiki new page", commandId: "new-wiki-page", wikiOnly: true },
-		{ label: "wiki rename…", commandId: "wiki-rename-page", wikiOnly: true },
+		{ label: "lint this page", commandId: "lint-this-page" },
 		{
-			label: "wiki move to other wiki…",
+			label: "apply autofixes to page",
+			commandId: "wiki-fix",
+			wikiOnly: true,
+		},
+	],
+	[
+		{ label: "new page", commandId: "new-wiki-page", wikiOnly: true },
+		{ label: "rename page…", commandId: "wiki-rename-page", wikiOnly: true },
+		{
+			label: "move page to another wiki…",
 			commandId: "wiki-move-page",
 			wikiOnly: true,
 		},
 		{
-			label: "wiki set status…",
+			label: "set page status…",
 			commandId: "wiki-set-status",
 			wikiOnly: true,
 		},
-		{ label: "wiki references", commandId: "wiki-refs", wikiOnly: true },
+		{ label: "show page references", commandId: "wiki-refs", wikiOnly: true },
 		{
-			label: "wiki apply autofixes",
-			commandId: "wiki-fix",
-			wikiOnly: true,
-		},
-		{
-			label: "wiki archive…",
+			label: "archive page…",
 			commandId: "wiki-archive-page",
 			wikiOnly: true,
 		},
 		{
-			label: "wiki delete…",
+			label: "delete page…",
 			commandId: "wiki-delete-page",
 			wikiOnly: true,
 		},
