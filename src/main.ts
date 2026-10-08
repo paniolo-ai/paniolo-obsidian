@@ -68,18 +68,18 @@ export default class PanioloPlugin extends Plugin {
 
 		this.addCommand({
 			id: "new-wiki-page",
-			name: "New wiki page",
+			name: "New page",
 			callback: () => this.openNewPageModal(),
 		});
 
 		const ops: [string, string, (f: TFile) => void][] = [
-			["wiki-rename-page", "Wiki: rename page", (f) => this.wikiRename(f)],
-			["wiki-move-page", "Wiki: move page to other wiki", (f) => this.wikiMove(f)],
-			["wiki-archive-page", "Wiki: archive page", (f) => this.wikiArchive(f)],
-			["wiki-delete-page", "Wiki: delete page", (f) => this.wikiDelete(f)],
-			["wiki-set-status", "Wiki: set page status", (f) => this.wikiSetStatus(f)],
-			["wiki-refs", "Wiki: show references", (f) => void this.wikiRefs(f)],
-			["wiki-fix", "Wiki: apply safe autofixes", (f) => void this.wikiFix(f)],
+			["wiki-rename-page", "Rename page", (f) => this.wikiRename(f)],
+			["wiki-move-page", "Move page to another wiki", (f) => this.wikiMove(f)],
+			["wiki-archive-page", "Archive page", (f) => this.wikiArchive(f)],
+			["wiki-delete-page", "Delete page", (f) => this.wikiDelete(f)],
+			["wiki-set-status", "Set page status", (f) => this.wikiSetStatus(f)],
+			["wiki-refs", "Show page references", (f) => void this.wikiRefs(f)],
+			["wiki-fix", "Apply autofixes to page", (f) => void this.wikiFix(f)],
 		];
 		for (const [id, name, fn] of ops) {
 			this.addCommand({
@@ -102,7 +102,7 @@ export default class PanioloPlugin extends Plugin {
 				for (const [id, name, fn] of ops) {
 					menu.addItem((i) =>
 						i
-							.setTitle(name.replace("Wiki: ", "wiki: "))
+							.setTitle(name)
 							.onClick(() => fn(file)),
 					);
 				}

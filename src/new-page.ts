@@ -156,7 +156,7 @@ export class NewPageModal extends Modal {
 
 	onOpen(): void {
 		const { contentEl } = this;
-		contentEl.createEl("h3", { text: "new wiki page" });
+		contentEl.createEl("h3", { text: "new page" });
 
 		new Setting(contentEl).setName("wiki").addDropdown((dd) => {
 			for (const w of this.wikis) dd.addOption(w.name, w.name);
