@@ -24,6 +24,7 @@ import {
 } from "./paniolo";
 import { ActionBar } from "./action-bar";
 import { showPageReferences } from "./page-references";
+import { showPageSources } from "./page-sources";
 import { searchRelatedPages } from "./related-pages";
 import {
 	NewPageModal,
@@ -51,6 +52,8 @@ export default class PanioloPlugin extends Plugin {
 	private statusItem: HTMLElement | null = null;
 	private actionBar = new ActionBar(this);
 	private findingsByPath = new Map<string, Finding[]>();
+	private lintTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private lintRevisions = new Map<string, number>();
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -82,6 +85,12 @@ export default class PanioloPlugin extends Plugin {
 			},
 		});
 
+		this.addCommand({
+			id: "search-pages-related-to-selection",
+			name: "Search for pages related to selection",
+			callback: () => this.searchPagesRelatedToSelection(),
+		});
+
 		const ops: [string, string, (f: TFile) => void][] = [
 			["wiki-rename-page", "Rename page", (f) => this.wikiRename(f)],
 			["wiki-move-page", "Move page to another wiki", (f) => this.wikiMove(f)],
@@ -89,6 +98,7 @@ export default class PanioloPlugin extends Plugin {
 			["wiki-delete-page", "Delete page", (f) => this.wikiDelete(f)],
 			["wiki-set-status", "Set page status", (f) => this.wikiSetStatus(f)],
 			["wiki-refs", "Search for page references", (f) => void this.wikiRefs(f)],
+			["wiki-sources", "View sources for page", (f) => void this.wikiSources(f)],
 			["wiki-fix", "Apply autofixes to page", (f) => void this.wikiFix(f)],
 		];
 		for (const [id, name, fn] of ops) {
@@ -123,10 +133,20 @@ export default class PanioloPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on("file-open", () => this.applyStored()),
 		);
+		this.registerEvent(
+			this.app.vault.on("modify", (file) => {
+				if (!(file instanceof TFile) || file.extension !== "md") return;
+				if (this.app.workspace.getActiveFile()?.path !== file.path) return;
+				this.scheduleLint(file);
+			}),
+		);
 		this.actionBar.register();
 	}
 
 	onunload(): void {
+		for (const timer of this.lintTimers.values()) clearTimeout(timer);
+		this.lintTimers.clear();
+		this.lintRevisions.clear();
 		this.findingsByPath.clear();
 		this.actionBar.removeAll();
 	}
@@ -156,8 +176,19 @@ export default class PanioloPlugin extends Plugin {
 		return join(adapter.getBasePath(), file.path);
 	}
 
-	/** Search from the open note and offer ranked, vault-resolvable wiki pages. */
-	private async searchRelatedPages(): Promise<void> {
+	/** Capture the editor selection before opening the delayed results menu. */
+	private searchPagesRelatedToSelection(): void {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const selectedText = view?.editor.getSelection().trim().replace(/\s+/g, " ").slice(0, 1000);
+		if (!selectedText) {
+			new Notice("paniolo: select text in a markdown page first");
+			return;
+		}
+		void this.searchRelatedPages(selectedText);
+	}
+
+	/** Search from the open note or selection for vault-resolvable wiki pages. */
+	private async searchRelatedPages(selectedText?: string): Promise<void> {
 		const file = this.app.workspace.getActiveFile();
 		if (!(file instanceof TFile) || file.extension !== "md") {
 			new Notice("paniolo: open a markdown page to search from");
@@ -180,6 +211,7 @@ export default class PanioloPlugin extends Plugin {
 			configRoot,
 			vaultRoot: adapter.getBasePath(),
 			binary: resolveBinary(this.settings.binaryPath),
+			...(selectedText === undefined ? {} : { selectedText }),
 		});
 	}
 
@@ -623,6 +655,30 @@ export default class PanioloPlugin extends Plugin {
 		}
 	}
 
+	/** Open the current wiki page's declared source snapshots and citations. */
+	private async wikiSources(file: TFile): Promise<void> {
+		const ctx = this.wikiContext(file);
+		if (!ctx) return;
+		const adapter = this.app.vault.adapter;
+		if (!(adapter instanceof FileSystemAdapter)) {
+			new Notice("paniolo: unsupported vault adapter");
+			return;
+		}
+		try {
+			await showPageSources({
+				app: this.app,
+				file,
+				repoRoot: join(ctx.configRoot, ctx.wiki.repoPath),
+				vaultRoot: adapter.getBasePath(),
+			});
+		} catch (error: unknown) {
+			new Notice(
+				`paniolo: could not show sources — ${error instanceof Error ? error.message : String(error)}`,
+				8000,
+			);
+		}
+	}
+
 	private async wikiFix(file: TFile): Promise<void> {
 		const ctx = this.wikiContext(file);
 		if (!ctx) return;
@@ -630,6 +686,26 @@ export default class PanioloPlugin extends Plugin {
 		if (r.ok) new Notice(`paniolo: autofix applied to ${ctx.slug}`);
 	}
 
+	/** Run lint after the last save in a short burst of vault changes. */
+	private scheduleLint(file: TFile): void {
+		const pending = this.lintTimers.get(file.path);
+		if (pending) clearTimeout(pending);
+		const revision = this.nextLintRevision(file.path);
+		const timer = setTimeout(() => {
+			this.lintTimers.delete(file.path);
+			void this.lintFile(file, true, revision);
+		}, 800);
+		this.lintTimers.set(file.path, timer);
+	}
+
+	/** Let newer saves or manual requests supersede an in-flight lint. */
+	private nextLintRevision(path: string): number {
+		const revision = (this.lintRevisions.get(path) ?? 0) + 1;
+		this.lintRevisions.set(path, revision);
+		return revision;
+	}
+
+	/** Lint the active page immediately when invoked from the command menu. */
 	private async lintActiveFile(): Promise<void> {
 		const file = this.app.workspace.getActiveFile();
 		if (!file || !(file instanceof TFile)) {
@@ -640,14 +716,22 @@ export default class PanioloPlugin extends Plugin {
 			new Notice("paniolo: not a markdown file");
 			return;
 		}
+		const pending = this.lintTimers.get(file.path);
+		if (pending) clearTimeout(pending);
+		this.lintTimers.delete(file.path);
+		await this.lintFile(file, false, this.nextLintRevision(file.path));
+	}
+
+	/** Run the scoped CLI checks and retain findings for the saved page. */
+	private async lintFile(file: TFile, automatic: boolean, revision: number): Promise<void> {
 		const absPath = this.activeAbsPath(file);
 		if (!absPath) {
-			new Notice("paniolo: unsupported vault adapter");
+			if (!automatic) new Notice("paniolo: unsupported vault adapter");
 			return;
 		}
 		const configRoot = findConfigRoot(dirname(absPath));
 		if (!configRoot) {
-			new Notice(
+			if (!automatic) new Notice(
 				"paniolo: no paniolo.config.json above this file — the vault is not paniolo-configured",
 			);
 			return;
@@ -655,7 +739,7 @@ export default class PanioloPlugin extends Plugin {
 
 		const binary = resolveBinary(this.settings.binaryPath);
 		const configPath = join(configRoot, "paniolo.config.json");
-		this.setStatus("linting…");
+		if (this.app.workspace.getActiveFile()?.path === file.path) this.setStatus("linting…");
 
 		try {
 			const findings: Finding[] = [];
@@ -666,6 +750,7 @@ export default class PanioloPlugin extends Plugin {
 				configRoot,
 			);
 			findings.push(...parseScanFindings(scan.stdout, absPath));
+			if (this.lintRevisions.get(file.path) !== revision) return;
 
 			// Scoped wiki validation (~1s) instead of whole-corpus (~6s):
 			// only when the file lives under a configured wiki root.
@@ -692,11 +777,14 @@ export default class PanioloPlugin extends Plugin {
 				findings.push(...parseWikiFindings(wres.stdout, absPath));
 			}
 
+			if (this.lintRevisions.get(file.path) !== revision) return;
 			this.findingsByPath.set(file.path, findings);
-			this.applyStored();
-			new Notice(`paniolo: ${findings.length} finding(s) on ${file.basename}`);
+			if (this.app.workspace.getActiveFile()?.path === file.path) this.applyStored();
+			if (!automatic) new Notice(`paniolo: ${findings.length} finding(s) on ${file.basename}`);
 		} catch (e) {
-			this.setStatus("error");
+			if (this.lintRevisions.get(file.path) !== revision) return;
+			if (this.app.workspace.getActiveFile()?.path === file.path) this.setStatus("error");
+			if (automatic && this.app.workspace.getActiveFile()?.path !== file.path) return;
 			if (e instanceof PanioloNotFoundError) {
 				new Notice(
 					"paniolo: binary not found — install @paniolo/cli or set the path in plugin settings",

@@ -19,7 +19,13 @@ const MENU_SECTIONS: MenuItem[][] = [
 			wikiOnly: true,
 		},
 	],
-	[{ label: "search for related pages…", commandId: "search-related-pages" }],
+	[
+		{ label: "search for related pages…", commandId: "search-related-pages" },
+		{
+			label: "search for pages related to selection…",
+			commandId: "search-pages-related-to-selection",
+		},
+	],
 	[
 		{ label: "new page", commandId: "new-wiki-page", wikiOnly: true },
 		{ label: "rename page…", commandId: "wiki-rename-page", wikiOnly: true },
@@ -34,6 +40,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 			wikiOnly: true,
 		},
 		{ label: "search for page references…", commandId: "wiki-refs", wikiOnly: true },
+		{ label: "view sources for page…", commandId: "wiki-sources", wikiOnly: true },
 		{
 			label: "archive page…",
 			commandId: "wiki-archive-page",

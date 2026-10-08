@@ -13,6 +13,7 @@ type RelatedPagesRequest = {
 	configRoot: string;
 	vaultRoot: string;
 	binary: string;
+	selectedText?: string;
 };
 
 type QmdHit = {
@@ -74,6 +75,7 @@ export async function searchRelatedPages({
 	configRoot,
 	vaultRoot,
 	binary,
+	selectedText,
 }: RelatedPagesRequest): Promise<void> {
 	const wikis = loadWikis(configRoot);
 	if (!wikis.length) {
@@ -83,17 +85,24 @@ export async function searchRelatedPages({
 	const position = menuPosition(app);
 	const notice = new Notice("paniolo: searching related pages…", 0);
 	try {
-		const markdown = await app.vault.cachedRead(file);
-		const title = app.metadataCache.getFileCache(file)?.frontmatter?.title;
-		const pageTitle = typeof title === "string" ? title : file.basename.replace(/[-_]/g, " ");
-		const query = `vec: ${pageTitle}. ${openingParagraph(markdown)}`;
+		let query: string;
+		if (selectedText) {
+			query = `vec: ${selectedText}`;
+		} else {
+			const markdown = await app.vault.cachedRead(file);
+			const title = app.metadataCache.getFileCache(file)?.frontmatter?.title;
+			const pageTitle = typeof title === "string" ? title : file.basename.replace(/[-_]/g, " ");
+			query = `vec: ${pageTitle}. ${openingParagraph(markdown)}`;
+		}
 		const result = await runPaniolo(
 			binary,
 			[
 				"qmd",
 				"query",
 				"--intent",
-				"Find other wiki pages about the same subject as the open page",
+				selectedText
+					? "Find wiki pages related to the selected text"
+					: "Find other wiki pages about the same subject as the open page",
 				"--format",
 				"json",
 				"--full-path",

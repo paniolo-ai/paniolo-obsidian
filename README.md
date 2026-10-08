@@ -16,12 +16,19 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   when the file lives under a `wiki/` root, against the nearest
   `paniolo.config.json`. Findings render as CodeMirror diagnostics —
   squiggles, hover messages, and a lint gutter — with the error/warn count
-  in the status bar.
+  in the status bar. The active Markdown page is also linted 800 ms after
+  its last saved change; the manual command remains available for an
+  immediate check.
 - **Paniolo ▸ action bar** — a per-note footer button that opens a menu over
   the same commands the palette exposes. Wiki entries only appear when the
   open file is under a `wiki/` root, so ordinary notes never see them.
 - **Search for related pages** — uses the open note's title and opening text
   to query qmd, then opens one of the top ranked wiki pages in the vault.
+- **Search for pages related to selection** — uses highlighted text in the
+  editor to find and open ranked wiki pages about that passage.
+- **View sources for page** — lists a wiki page's `sources:` citations. Open
+  linked pages in Obsidian, web sources in a browser, and raw snapshot files
+  in their default desktop app.
 - **New wiki page** — a modal front-end for `paniolo wiki new`: pick the
   wiki, kind, slug, tags, title, and source. Before stamping the page, the
   plugin claims the slug vault-wide — colliding loose notes are renamed

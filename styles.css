@@ -35,3 +35,12 @@
 	max-height: 60vh;
 	overflow-y: auto;
 }
+
+.paniolo-source-list {
+	max-height: 60vh;
+	overflow-y: auto;
+}
+
+.paniolo-source-list .setting-item-name {
+	overflow-wrap: anywhere;
+}
