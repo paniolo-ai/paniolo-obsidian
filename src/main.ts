@@ -23,6 +23,7 @@ import {
 	runPaniolo,
 } from "./paniolo";
 import { ActionBar } from "./action-bar";
+import { StalenessIndicator } from "./staleness-indicator";
 import { showPageReferences } from "./page-references";
 import { showPageSources } from "./page-sources";
 import { searchRelatedPages } from "./related-pages";
@@ -51,7 +52,15 @@ function argsTail(args: string[]): string {
 export default class PanioloPlugin extends Plugin {
 	settings: PanioloSettings = DEFAULT_SETTINGS;
 	private statusItem: HTMLElement | null = null;
-	private actionBar = new ActionBar(this);
+	private actionBar = new ActionBar(this, (path) => this.stalenessIndicator.displayForPath(path));
+	private stalenessIndicator = new StalenessIndicator(
+		this,
+		() => this.settings.binaryPath,
+		() => {
+			this.actionBar.refreshAll();
+			this.applyStored();
+		},
+	);
 	private findingsByPath = new Map<string, Finding[]>();
 	private lintTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private lintRevisions = new Map<string, number>();
@@ -159,6 +168,7 @@ export default class PanioloPlugin extends Plugin {
 				this.scheduleLint(file);
 			}),
 		);
+		this.stalenessIndicator.register();
 		this.actionBar.register();
 	}
 
@@ -167,6 +177,7 @@ export default class PanioloPlugin extends Plugin {
 		this.lintTimers.clear();
 		this.lintRevisions.clear();
 		this.findingsByPath.clear();
+		this.stalenessIndicator.dispose();
 		this.actionBar.removeAll();
 	}
 
@@ -269,9 +280,11 @@ export default class PanioloPlugin extends Plugin {
 		const view = this.cmView();
 		if (!file || !view) return;
 		const findings = this.findingsByPath.get(file.path) ?? [];
-		view.dispatch(
-			setDiagnostics(view.state, findingsToDiagnostics(view.state.doc, findings)),
-		);
+		const diagnostics = [
+			...findingsToDiagnostics(view.state.doc, findings),
+			...this.stalenessIndicator.diagnosticsFor(file.path, view.state.doc),
+		];
+		view.dispatch(setDiagnostics(view.state, diagnostics));
 		const errs = findings.filter((f) => f.severity === "error").length;
 		const warns = findings.filter((f) => f.severity === "warn").length;
 		this.setStatus(
