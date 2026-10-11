@@ -56,7 +56,10 @@ export default class PanioloPlugin extends Plugin {
 	private stalenessIndicator = new StalenessIndicator(
 		this,
 		() => this.settings.binaryPath,
-		() => this.actionBar.refreshAll(),
+		() => {
+			this.actionBar.refreshAll();
+			this.applyStored();
+		},
 	);
 	private findingsByPath = new Map<string, Finding[]>();
 	private lintTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -277,9 +280,11 @@ export default class PanioloPlugin extends Plugin {
 		const view = this.cmView();
 		if (!file || !view) return;
 		const findings = this.findingsByPath.get(file.path) ?? [];
-		view.dispatch(
-			setDiagnostics(view.state, findingsToDiagnostics(view.state.doc, findings)),
-		);
+		const diagnostics = [
+			...findingsToDiagnostics(view.state.doc, findings),
+			...this.stalenessIndicator.diagnosticsFor(file.path, view.state.doc),
+		];
+		view.dispatch(setDiagnostics(view.state, diagnostics));
 		const errs = findings.filter((f) => f.severity === "error").length;
 		const warns = findings.filter((f) => f.severity === "warn").length;
 		this.setStatus(
