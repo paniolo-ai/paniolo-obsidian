@@ -30,6 +30,18 @@
 	color: var(--text-muted);
 }
 
+.nav-file-title.paniolo-staleness-signals .nav-file-title-content {
+	color: var(--text-warning);
+}
+
+.nav-file-title.paniolo-staleness-clean .nav-file-title-content {
+	color: var(--text-success);
+}
+
+.nav-file-title.paniolo-staleness-unwatched .nav-file-title-content {
+	color: var(--text-muted);
+}
+
 .paniolo-staleness-neutral,
 .paniolo-staleness-checking {
 	color: var(--text-faint);
