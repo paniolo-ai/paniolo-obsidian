@@ -13,6 +13,28 @@
 	cursor: pointer;
 }
 
+.paniolo-staleness-label {
+	align-self: center;
+	font-size: var(--font-ui-smaller);
+}
+
+.paniolo-staleness-signals {
+	color: var(--text-warning);
+}
+
+.paniolo-staleness-clean {
+	color: var(--text-success);
+}
+
+.paniolo-staleness-unwatched {
+	color: var(--text-muted);
+}
+
+.paniolo-staleness-neutral,
+.paniolo-staleness-checking {
+	color: var(--text-faint);
+}
+
 .paniolo-confirm-body {
 	white-space: pre-wrap;
 	font-size: var(--font-ui-small);

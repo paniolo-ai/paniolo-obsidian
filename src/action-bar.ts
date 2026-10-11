@@ -1,4 +1,5 @@
 import { MarkdownView, Menu, Plugin, type TFile } from "obsidian";
+import type { IndicatorDisplay } from "./staleness-indicator";
 
 const BAR_CLASS = "paniolo-action-bar";
 
@@ -69,7 +70,10 @@ interface CommandApi {
  * entries join MENU_SECTIONS.
  */
 export class ActionBar {
-	constructor(private plugin: Plugin) {}
+	constructor(
+		private plugin: Plugin,
+		private indicatorForPath: (path: string) => IndicatorDisplay | null,
+	) {}
 
 	register(): void {
 		const refresh = () => this.refreshAll();
@@ -95,7 +99,8 @@ export class ActionBar {
 		}
 	}
 
-	private refreshAll(): void {
+	/** Refresh every open page after its staleness indicator changes. */
+	refreshAll(): void {
 		for (const leaf of this.plugin.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (view instanceof MarkdownView) this.render(view);
@@ -147,6 +152,13 @@ export class ActionBar {
 			}
 			menu.showAtMouseEvent(ev);
 		});
+		const indicator = this.indicatorForPath(file.path);
+		if (indicator) {
+			bar.createSpan({
+				cls: `paniolo-staleness-label paniolo-staleness-${indicator.state}`,
+				text: indicator.text,
+			});
+		}
 	}
 
 	/** Choose the placeholder label from the saved page's H2 headings. */
