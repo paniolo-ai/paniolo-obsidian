@@ -6,7 +6,8 @@
 	"packageManager": "pnpm@12.8.1",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"test": "node --test test/*.test.cjs"
 	},
 	"keywords": ["obsidian", "paniolo"],
 	"license": "MIT",

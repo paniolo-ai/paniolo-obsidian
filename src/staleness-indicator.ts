@@ -153,6 +153,14 @@ function headingPositions(doc: Text): Map<string, { from: number; to: number }> 
 	return positions;
 }
 
+/** Resolve the ledger's heading ancestry to a current editor line, if present. */
+export function headingLineForAnchor(doc: Text, anchor: string): number | null {
+	if (!anchor || anchor === "page") return doc.line(1).number;
+	const positions = headingPositions(doc);
+	const position = positions.get(anchor);
+	return position ? doc.lineAt(position.from).number : null;
+}
+
 /** Only nominate a saved signal when its exact anchor exists in the editor. */
 export function signalsToDiagnostics(doc: Text, signals: StalenessSignal[]): Diagnostic[] {
 	const positions = headingPositions(doc);

@@ -24,6 +24,8 @@ import {
 } from "./paniolo";
 import { ActionBar } from "./action-bar";
 import { StalenessIndicator } from "./staleness-indicator";
+import { StalenessCountIndicator } from "./staleness-count-indicator";
+import { PageStaleness } from "./page-staleness";
 import { showPageReferences } from "./page-references";
 import { showPageSources } from "./page-sources";
 import { searchRelatedPages } from "./related-pages";
@@ -52,13 +54,31 @@ function argsTail(args: string[]): string {
 export default class PanioloPlugin extends Plugin {
 	settings: PanioloSettings = DEFAULT_SETTINGS;
 	private statusItem: HTMLElement | null = null;
-	private actionBar = new ActionBar(this, (path) => this.stalenessIndicator.displayForPath(path));
+	private actionBar = new ActionBar(
+		this,
+		(path) => this.stalenessIndicator.displayForPath(path),
+		(path) => this.stalenessCountIndicator.displayForPath(path),
+	);
 	private stalenessIndicator = new StalenessIndicator(
 		this,
 		() => this.settings.binaryPath,
 		() => {
 			this.actionBar.refreshAll();
 			this.applyStored();
+		},
+	);
+	private stalenessCountIndicator = new StalenessCountIndicator(
+		this,
+		() => this.settings.binaryPath,
+		() => this.actionBar.refreshAll(),
+	);
+	private pageStaleness = new PageStaleness(
+		this,
+		() => this.settings.binaryPath,
+		(target) => this.settings.pageRuns[target] ?? null,
+		async (target, id) => {
+			this.settings.pageRuns[target] = id;
+			await this.saveSettings();
 		},
 	);
 	private findingsByPath = new Map<string, Finding[]>();
@@ -109,8 +129,8 @@ export default class PanioloPlugin extends Plugin {
 
 		this.addCommand({
 			id: "fix-page-staleness",
-			name: "Fix page staleness",
-			callback: () => new Notice("Coming soon…"),
+			name: "Review page staleness",
+			callback: () => this.pageStaleness.openActivePage(),
 		});
 
 		this.addCommand({
@@ -169,6 +189,8 @@ export default class PanioloPlugin extends Plugin {
 			}),
 		);
 		this.stalenessIndicator.register();
+		this.stalenessCountIndicator.register();
+		this.pageStaleness.register();
 		this.actionBar.register();
 	}
 
@@ -178,11 +200,25 @@ export default class PanioloPlugin extends Plugin {
 		this.lintRevisions.clear();
 		this.findingsByPath.clear();
 		this.stalenessIndicator.dispose();
+		this.stalenessCountIndicator.dispose();
+		this.pageStaleness.dispose();
 		this.actionBar.removeAll();
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const saved: unknown = await this.loadData();
+		const record = typeof saved === "object" && saved !== null && !Array.isArray(saved)
+			? saved as Record<string, unknown> : {};
+		const pageRuns: Record<string, string> = {};
+		if (typeof record.pageRuns === "object" && record.pageRuns !== null && !Array.isArray(record.pageRuns)) {
+			for (const [target, id] of Object.entries(record.pageRuns)) {
+				if (typeof id === "string" && id) pageRuns[target] = id;
+			}
+		}
+		this.settings = {
+			binaryPath: typeof record.binaryPath === "string" ? record.binaryPath : DEFAULT_SETTINGS.binaryPath,
+			pageRuns,
+		};
 	}
 
 	async saveSettings(): Promise<void> {
