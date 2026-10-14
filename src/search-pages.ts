@@ -1,6 +1,7 @@
 import { App, MarkdownView, Modal, Notice, Setting, TFile } from "obsidian";
 import { isAbsolute, relative } from "path";
 import { loadWikis, wikiForAbsPath } from "./new-page";
+import { countFromQmdHit, countLabel, type StalenessCount } from "./staleness-count";
 import {
 	PanioloNotFoundError,
 	PanioloTimeoutError,
@@ -19,6 +20,7 @@ type QmdHit = {
 	file: string;
 	title: string;
 	snippet: string;
+	staleness: StalenessCount;
 };
 
 type PageHit = {
@@ -26,10 +28,11 @@ type PageHit = {
 	title: string;
 	snippet: string;
 	wikiName: string;
+	staleness: StalenessCount;
 };
 
 /** Read only the fields used by the picker from qmd's JSON result. */
-function parseHits(stdout: string): QmdHit[] {
+export function parseHits(stdout: string): QmdHit[] {
 	const value: unknown = JSON.parse(stdout);
 	if (typeof value !== "object" || value === null || !("results" in value)) {
 		throw new Error("qmd returned an invalid result");
@@ -48,6 +51,7 @@ function parseHits(stdout: string): QmdHit[] {
 			snippet: "snippet" in item && typeof item.snippet === "string"
 				? item.snippet
 				: "",
+			staleness: countFromQmdHit(item),
 		});
 	}
 	return hits;
@@ -145,7 +149,7 @@ export class SearchPagesModal extends Modal {
 			const wiki = wikiForAbsPath(this.request.configRoot, hit.file, wikis);
 			if (!wiki || file.basename.toLowerCase() === "log") continue;
 			seen.add(vaultPath);
-			pages.push({ file, title: hit.title || file.basename, snippet: hit.snippet, wikiName: wiki.name });
+			pages.push({ file, title: hit.title || file.basename, snippet: hit.snippet, wikiName: wiki.name, staleness: hit.staleness });
 			if (pages.length === 10) break;
 		}
 		if (!pages.length) {
@@ -154,7 +158,7 @@ export class SearchPagesModal extends Modal {
 		}
 		for (const page of pages) {
 			const excerpt = page.snippet.replace(/\s+/g, " ").trim().slice(0, 220);
-			new Setting(this.resultsEl)
+			const setting = new Setting(this.resultsEl)
 				.setName(`${page.title} · ${page.wikiName}`)
 				.setDesc(excerpt || page.file.path)
 				.addButton((button) => button.setButtonText("open").onClick(() => {
@@ -165,6 +169,10 @@ export class SearchPagesModal extends Modal {
 					.setButtonText("insert link")
 					.setDisabled(!this.sourceFile)
 					.onClick(() => this.insertLink(page.file)));
+			setting.nameEl.createSpan({
+				cls: `paniolo-count-badge paniolo-count-${page.staleness.source}`,
+				text: countLabel(page.staleness),
+			});
 		}
 	}
 

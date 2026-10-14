@@ -22,12 +22,20 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
 - **Paniolo ▸ action bar** — a per-note footer button that opens a menu over
   the same commands the palette exposes. Wiki entries only appear when the
   open file is under a `wiki/` root, so ordinary notes never see them.
+- **Open staleness count** — shows the current wiki page’s unresolved ledger
+  count beside the separate watched-signal indicator. Search, related, and
+  selection results use the count already returned by qmd. A snapshot count
+  is marked as such; an unavailable count never appears as zero.
 - **Search for related pages** — uses the open note's title and opening text
   to query qmd, then opens one of the top ranked wiki pages in the vault.
 - **Add or update related pages** — a menu placeholder that shows
   **Coming soon…**; it does not edit the page yet.
-- **Fix page staleness** — a menu placeholder that shows **Coming soon…**;
-  it does not run the staleness lane yet.
+- **Review page staleness** — opens the selected page’s complete list of open
+  ledger entries, with IDs, states, anchors, evidence, and heading jumps.
+  The optional **Run page report** button submits a detached, exact-page
+  report and resumes its saved run ID after reload. This currently requires a
+  clean committed page. A completed report does not apply a fix or close an
+  entry; patch review and closure are later plan cards.
 - **Search pages** — searches configured wiki pages by keyword or hybrid qmd
   ranking. Results show an excerpt and can be opened or linked into the active
   note.
@@ -72,6 +80,7 @@ pnpm install
 pnpm run dev      # esbuild watch; copies main.js/manifest.json/styles.css
                   # into the dev vault's .obsidian/plugins/paniolo-obsidian/
 pnpm run build    # typecheck + production bundle
+pnpm test         # plugin parser and interaction fixtures
 ```
 
 Set `PANIOLO_VAULT_PLUGINS` to target a different vault's plugin directory.

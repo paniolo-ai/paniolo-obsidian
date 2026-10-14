@@ -6,6 +6,7 @@ import {
 	runPaniolo,
 } from "./paniolo";
 import { loadWikis, wikiForAbsPath } from "./new-page";
+import { countFromQmdHit, countLabel, type StalenessCount } from "./staleness-count";
 
 type RelatedPagesRequest = {
 	app: App;
@@ -19,6 +20,7 @@ type RelatedPagesRequest = {
 type QmdHit = {
 	file: string;
 	title: string;
+	staleness: StalenessCount;
 };
 
 /** Use the opening prose as context without sending an entire long note to qmd. */
@@ -38,7 +40,7 @@ function openingParagraph(markdown: string): string {
 }
 
 /** Accept only the path and title fields needed from qmd's JSON output. */
-function parseHits(stdout: string): QmdHit[] {
+export function parseHits(stdout: string): QmdHit[] {
 	const value: unknown = JSON.parse(stdout);
 	if (typeof value !== "object" || value === null || !("results" in value)) {
 		throw new Error("qmd returned an invalid result");
@@ -51,7 +53,7 @@ function parseHits(stdout: string): QmdHit[] {
 		if (typeof item !== "object" || item === null) continue;
 		if (!("file" in item) || typeof item.file !== "string") continue;
 		if (!("title" in item) || typeof item.title !== "string") continue;
-		hits.push({ file: item.file, title: item.title });
+		hits.push({ file: item.file, title: item.title, staleness: countFromQmdHit(item) });
 	}
 	return hits;
 }
@@ -135,7 +137,7 @@ export async function searchRelatedPages({
 			if (!wiki) continue;
 			seen.add(vaultPath);
 			menu.addItem((item) =>
-				item.setTitle(`${hit.title || target.basename} · ${wiki.name}`).onClick(() => {
+				item.setTitle(`${hit.title || target.basename} · ${wiki.name} · ${countLabel(hit.staleness)}`).onClick(() => {
 					void app.workspace.getLeaf(false).openFile(target);
 				}),
 			);

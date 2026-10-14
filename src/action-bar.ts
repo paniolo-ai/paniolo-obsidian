@@ -1,5 +1,6 @@
 import { MarkdownView, Menu, Plugin, type TFile } from "obsidian";
 import type { IndicatorDisplay } from "./staleness-indicator";
+import type { CountDisplay } from "./staleness-count-indicator";
 
 const BAR_CLASS = "paniolo-action-bar";
 
@@ -19,7 +20,7 @@ const MENU_SECTIONS: MenuItem[][] = [
 			commandId: "wiki-fix",
 			wikiOnly: true,
 		},
-		{ label: "fix page staleness…", commandId: "fix-page-staleness", wikiOnly: true },
+		{ label: "review page staleness…", commandId: "fix-page-staleness", wikiOnly: true },
 	],
 	[
 		{ label: "search pages…", commandId: "search-pages" },
@@ -73,6 +74,7 @@ export class ActionBar {
 	constructor(
 		private plugin: Plugin,
 		private indicatorForPath: (path: string) => IndicatorDisplay | null,
+		private countForPath: (path: string) => CountDisplay | null,
 	) {}
 
 	register(): void {
@@ -157,6 +159,13 @@ export class ActionBar {
 			bar.createSpan({
 				cls: `paniolo-staleness-label paniolo-staleness-${indicator.state}`,
 				text: indicator.text,
+			});
+		}
+		const count = this.countForPath(file.path);
+		if (count) {
+			bar.createSpan({
+				cls: `paniolo-count-badge paniolo-count-${count.source}`,
+				text: count.text,
 			});
 		}
 	}

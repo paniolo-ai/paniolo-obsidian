@@ -4,10 +4,13 @@ import type PanioloPlugin from "./main";
 export interface PanioloSettings {
 	/** Explicit path to the paniolo binary; empty resolves `paniolo` via PATH. */
 	binaryPath: string;
+	/** Exact report ID last submitted for each configured wiki page. */
+	pageRuns: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: PanioloSettings = {
 	binaryPath: "",
+	pageRuns: {},
 };
 
 export class PanioloSettingTab extends PluginSettingTab {

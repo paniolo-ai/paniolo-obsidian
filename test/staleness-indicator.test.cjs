@@ -13,7 +13,15 @@ const compiled = ts.transpileModule(source, {
 const moduleUnderTest = { exports: {} };
 const load = new Function("require", "module", "exports", compiled);
 load((name) => name === "obsidian" || name === "./paniolo" ? {} : require(name), moduleUnderTest, moduleUnderTest.exports);
-const { signalsToDiagnostics, parseExplorerStates } = moduleUnderTest.exports;
+const { signalsToDiagnostics, parseExplorerStates, headingLineForAnchor } = moduleUnderTest.exports;
+
+test("page anchors jump to the top; missing headings stay inspectable", () => {
+	const doc = Text.of(["Intro", "# First", "## Second"]);
+	assert.equal(headingLineForAnchor(doc, ""), 1);
+	assert.equal(headingLineForAnchor(doc, "page"), 1);
+	assert.equal(headingLineForAnchor(doc, "first/second"), 3);
+	assert.equal(headingLineForAnchor(doc, "first/missing"), null);
+});
 
 test("a signal at the second heading annotates only that heading", () => {
 	const doc = Text.of(["# First", "Text", "## Second", "More text"]);
