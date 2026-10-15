@@ -5,6 +5,7 @@ import type { WikiConfig } from "./new-page";
 import { runPaniolo, type PanioloResult } from "./paniolo";
 
 const COMMAND_TIMEOUT_MS = 120_000;
+const GATE_TIMEOUT_MS = 900_000;
 const SAVE_WAIT_MS = 10_000;
 
 export type PagePrRoute = {
@@ -29,8 +30,8 @@ async function command(run: CommandRunner, binary: string, args: string[], cwd: 
 	return run(binary, args, cwd, COMMAND_TIMEOUT_MS);
 }
 
-async function checked(run: CommandRunner, binary: string, args: string[], cwd: string): Promise<string> {
-	const result = await command(run, binary, args, cwd);
+async function checked(run: CommandRunner, binary: string, args: string[], cwd: string, timeoutMs = COMMAND_TIMEOUT_MS): Promise<string> {
+	const result = await run(binary, args, cwd, timeoutMs);
 	if (result.code !== 0) throw new Error(result.stderr.trim() || `${binary} ${args[0]} failed`);
 	return result.stdout.trim();
 }
@@ -119,12 +120,12 @@ export async function publishPagePr(
 		throw new Error("page changed during validation; PR publication stopped");
 	}
 	if (await git("symbolic-ref", "--quiet", "--short", "HEAD") !== route.branch) throw new Error("Git branch changed during validation");
-	await git("commit", "--only", "-m", `fix(wiki): address ${allegationId}`, "--", route.pagePath);
+	await checked(run, "git", ["-C", route.repoRoot, "commit", "--only", "-m", `fix(wiki): address ${allegationId}`, "--", route.pagePath], route.repoRoot, GATE_TIMEOUT_MS);
 	const committed = await command(run, "git", ["-C", route.repoRoot, "show", `HEAD:${route.pagePath.replace(/\\/g, "/")}`], route.repoRoot);
 	if (committed.code !== 0 || pageHash(committed.stdout) !== patchedHash || pageHash(await readFile(route.absPath, "utf8")) !== patchedHash) {
 		throw new Error("committed page differs from the accepted patch; PR publication stopped");
 	}
-	await git("push", "-u", "origin", route.branch);
+	await checked(run, "git", ["-C", route.repoRoot, "push", "-u", "origin", route.branch], route.repoRoot, GATE_TIMEOUT_MS);
 	if (priorPr) return priorPr.url;
 	return checked(run, "gh", ["pr", "create", "--base", route.baseBranch, "--head", route.branch,
 		"--title", `Fix staleness in ${route.pagePath}`, "--body", `Reviewed page patch for ${allegationId} from page report ${route.runId}.\n\nLedger entries remain open until merge and independent verification.`], route.repoRoot);
