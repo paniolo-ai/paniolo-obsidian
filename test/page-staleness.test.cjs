@@ -17,26 +17,56 @@ const pageKey = loadTs("page-staleness-key.ts");
 
 test("saved exact-head review ID survives controller reload and a changed scope gets new work", async () => {
 	const saved = {};
+	const tracked = {};
 	let submissions = 0;
 	let currentKey = "wiki:feature@head1#scope1";
+	const makePlan = (key) => ({ key, repo: "wiki", prNumber: 12, base: "a".repeat(40), head: "b".repeat(40),
+		files: [{ path: "wiki/a.md", entries: [] }] });
 	const { PageStaleness } = makeModule(() => {}, {}, {}, {
-		inspectPagePrReview: async (_root, _repoRoot, _repo, _binary) => ({ key: currentKey }),
+		inspectPagePrReview: async (_root, _repoRoot, _repo, _binary) => makePlan(currentKey),
 		submitPagePrReview: async () => { submissions++; return `PR-${String(submissions).padStart(64, "a")}`; },
 	});
 	const makeController = () => new PageStaleness({}, () => "paniolo", () => null, async () => {},
-		(key) => saved[key] ?? null, async (key, id) => { saved[key] = id; });
+		(key) => saved[key] ?? null, async (key, id) => { saved[key] = id; },
+		(page) => tracked[page] ?? null, async (page, value) => { tracked[page] = value; });
 	const first = makeController();
-	const plan = { key: "wiki:feature@head1#scope1" };
-	const id = await first.submitReview(plan, root);
+	const plan = makePlan(currentKey);
+	const id = await first.submitReview(plan, root, target);
 	assert.equal(submissions, 1);
+	assert.equal(tracked[target].id, id);
 	const reloaded = makeController();
 	assert.equal(reloaded.getSavedReviewId(plan), id);
-	assert.equal(await reloaded.submitReview(plan, root), id);
+	assert.equal(await reloaded.submitReview(plan, root, target), id);
 	assert.equal(submissions, 1);
 	currentKey = "wiki:feature@head2#scope2";
-	await assert.rejects(reloaded.submitReview(plan, root), /changed/);
-	await reloaded.submitReview({ key: currentKey }, root);
+	await assert.rejects(reloaded.submitReview(plan, root, target), /changed/);
+	await reloaded.submitReview(makePlan(currentKey), root, target);
 	assert.equal(submissions, 2);
+	assert.equal(tracked[target].key, currentKey);
+	await assert.rejects(reloaded.submitReview({ ...makePlan(currentKey), files: [{ path: "wiki/b.md", entries: [] }] }, root, target), /outside/);
+});
+
+test("one concurrent PR review records completion tracking for both touched pages", async () => {
+	const plan = { key: "wiki:branch@head#scope", repo: "wiki", prNumber: 12, base: "a".repeat(40), head: "b".repeat(40),
+		files: [{ path: "wiki/a.md", entries: [] }, { path: "wiki/b.md", entries: [] }] };
+	let release;
+	let submissions = 0;
+	const saved = {};
+	const tracked = {};
+	const { PageStaleness } = makeModule(() => {}, {}, {}, {
+		inspectPagePrReview: async () => plan,
+		submitPagePrReview: async () => { submissions++; return new Promise((resolve) => { release = resolve; }); },
+	});
+	const controller = new PageStaleness({}, () => "paniolo", () => null, async () => {},
+		(key) => saved[key] ?? null, async (key, id) => { saved[key] = id; },
+		(page) => tracked[page] ?? null, async (page, value) => { tracked[page] = value; });
+	const first = controller.submitReview(plan, root, "wiki:wiki/a.md");
+	const second = controller.submitReview(plan, root, "wiki:wiki/b.md");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(submissions, 1);
+	release(`PR-${"c".repeat(64)}`);
+	await Promise.all([first, second]);
+	assert.equal(tracked["wiki:wiki/a.md"].id, tracked["wiki:wiki/b.md"].id);
 });
 
 function makeModule(runPaniolo, ui = {}, pr = {}, review = {}) {
@@ -55,6 +85,9 @@ function makeModule(runPaniolo, ui = {}, pr = {}, review = {}) {
 			inspectPagePrReview: async () => { throw new Error("review not configured in fixture"); },
 			submitPagePrReview: async () => { throw new Error("review not configured in fixture"); },
 			...review,
+		},
+		"./page-staleness-completion": {
+			readPageCompletion: async (_tracking, count, source) => ({ text: `${count} open (${source})` }),
 		},
 		"./staleness-indicator": { headingLineForAnchor: () => null },
 		"./paniolo": { findConfigRoot: () => root, resolveBinary: () => "paniolo", runPaniolo },
@@ -105,6 +138,42 @@ test("the on-demand panel renders all nine entries and retains a missing heading
 	assert.ok(descriptions.some((description) => description.includes("missing-1")));
 	assert.equal(buttons.filter((label) => label === "Evidence").length, 9);
 	assert.equal(buttons.filter((label) => label === "Jump to heading").length, 9);
+});
+
+test("the open panel refreshes current-writer zero without a plugin restart", async () => {
+	const priorWindow = global.window;
+	let poll;
+	let count = 2;
+	const texts = [];
+	global.window = { setInterval: (callback) => { poll = callback; return 1; }, clearInterval: () => {} };
+	class Element {
+		createEl() { return new Element(); }
+		createDiv() { return new Element(); }
+		setText(value) { texts.push(value); }
+		empty() {}
+	}
+	class Modal {
+		constructor(app) { this.app = app; this.contentEl = new Element(); }
+		open() { this.onOpen(); }
+	}
+	class Setting {
+		setName() { return this; }
+		setDesc() { return this; }
+		addButton() { return this; }
+	}
+	try {
+		const { PageStaleness } = makeModule(async () => ({ code: 0, stdout: JSON.stringify({ target,
+			status: "available", source: "active-writer", generation: 4, count,
+			entries: Array.from({ length: count }, (_, index) => ({ id: `A${index}`, state: "alleged", anchor: "", revision: 1 })) }) }), { Modal, Setting });
+		const plugin = { app: { workspace: { getActiveFile: () => file }, vault: { adapter: new FileSystemAdapter() } } };
+		new PageStaleness(plugin, () => "", () => null, async () => {}).openActivePage();
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.ok(texts.includes("2 open (active-writer)"));
+		count = 0;
+		poll();
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.ok(texts.includes("0 open (active-writer)"));
+	} finally { global.window = priorWindow; }
 });
 
 test("one detached exact-page report is saved, concurrent clicks join, and reload polls the saved ID", async () => {

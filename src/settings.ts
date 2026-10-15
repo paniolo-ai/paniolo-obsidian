@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type PanioloPlugin from "./main";
+import type { PageReviewTracking } from "./page-staleness-completion";
 
 export interface PanioloSettings {
 	/** Explicit path to the paniolo binary; empty resolves `paniolo` via PATH. */
@@ -8,12 +9,15 @@ export interface PanioloSettings {
 	pageRuns: Record<string, string>;
 	/** Review IDs for exact repository branch and PR head identities. */
 	pageReviews: Record<string, string>;
+	/** Last exact PR review attached to each edited page. */
+	pageReviewTracking: Record<string, PageReviewTracking>;
 }
 
 export const DEFAULT_SETTINGS: PanioloSettings = {
 	binaryPath: "",
 	pageRuns: {},
 	pageReviews: {},
+	pageReviewTracking: {},
 };
 
 export class PanioloSettingTab extends PluginSettingTab {

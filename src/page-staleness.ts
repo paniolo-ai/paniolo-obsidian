@@ -10,6 +10,7 @@ import { pageKeyForPath } from "./page-staleness-key";
 import { applyReviewedPatch, parseReviewedPagePatches, type ReviewedPagePatches, type ReviewedPatch } from "./page-staleness-patch";
 import { preparePagePr, publishPagePr } from "./page-staleness-pr";
 import { inspectPagePrReview, submitPagePrReview, type PagePrReviewPlan } from "./page-staleness-review";
+import { readPageCompletion, type PageReviewTracking } from "./page-staleness-completion";
 import { headingLineForAnchor } from "./staleness-indicator";
 
 type PageContext = { file: TFile; configRoot: string; target: string };
@@ -128,6 +129,8 @@ export class PageStaleness {
 		private saveRunId: (target: string, id: string) => Promise<void>,
 		private getReviewId: (key: string) => string | null = () => null,
 		private saveReviewId: (key: string, id: string) => Promise<void> = async () => {},
+		private getReviewTracking: (target: string) => PageReviewTracking | null = () => null,
+		private saveReviewTracking: (target: string, tracking: PageReviewTracking) => Promise<void> = async () => {},
 	) {}
 
 	/** Inspect the active topic PR without submitting a review. */
@@ -135,8 +138,10 @@ export class PageStaleness {
 		const repo = context.target.slice(0, context.target.indexOf(":"));
 		const wiki = loadWikis(context.configRoot).find((item) => item.name === repo);
 		if (!wiki) throw new Error("configured wiki repository is unavailable");
-		return inspectPagePrReview(context.configRoot, resolve(context.configRoot, wiki.repoPath), repo,
+		const plan = await inspectPagePrReview(context.configRoot, resolve(context.configRoot, wiki.repoPath), repo,
 			resolveBinary(this.binaryPath()));
+		this.assertReviewPage(plan, context.target);
+		return plan;
 	}
 
 	getSavedReviewId(plan: PagePrReviewPlan): string | null {
@@ -144,21 +149,58 @@ export class PageStaleness {
 	}
 
 	/** A repeat click joins the saved exact-head review; a changed scope gets a new key. */
-	async submitReview(plan: PagePrReviewPlan, configRoot: string): Promise<string> {
+	async submitReview(plan: PagePrReviewPlan, configRoot: string, target: string): Promise<string> {
+		this.assertReviewPage(plan, target);
 		const current = await inspectPagePrReview(configRoot, plan.repoRoot, plan.repo, resolveBinary(this.binaryPath()));
 		if (current.key !== plan.key) throw new Error("PR head or open-entry scope changed; inspect the review plan again");
 		const saved = this.getReviewId(plan.key);
-		if (saved) return saved;
+		if (saved) {
+			await this.rememberReview(plan, target, saved);
+			return saved;
+		}
 		const pending = this.reviewSubmissions.get(plan.key);
-		if (pending) return pending;
+		if (pending) {
+			const id = await pending;
+			await this.rememberReview(plan, target, id);
+			return id;
+		}
 		const submission = (async (): Promise<string> => {
 			const id = await submitPagePrReview(plan, configRoot, resolveBinary(this.binaryPath()));
 			await this.saveReviewId(plan.key, id);
+			await this.rememberReview(plan, target, id);
 			return id;
 		})();
 		this.reviewSubmissions.set(plan.key, submission);
 		try { return await submission; }
 		finally { this.reviewSubmissions.delete(plan.key); }
+	}
+
+	/** Upgrade a saved review ID to page-scoped completion tracking after inspection. */
+	async rememberReview(plan: PagePrReviewPlan, target: string, id: string): Promise<void> {
+		this.assertReviewPage(plan, target);
+		const tracking: PageReviewTracking = { key: plan.key, id, repo: plan.repo,
+			prNumber: plan.prNumber, base: plan.base, head: plan.head };
+		const saved = this.getReviewTracking(target);
+		if (saved?.key !== plan.key || saved.id !== id) await this.saveReviewTracking(target, tracking);
+	}
+
+	private assertReviewPage(plan: PagePrReviewPlan, target: string): void {
+		const separator = target.indexOf(":");
+		if (separator < 1 || target.slice(0, separator) !== plan.repo
+			|| !plan.files.some((file) => file.path === target.slice(separator + 1))) {
+			throw new Error("current page is outside this PR review scope");
+		}
+	}
+
+	async completion(context: PageContext, list: OpenList): Promise<string> {
+		const repo = context.target.slice(0, context.target.indexOf(":"));
+		const wiki = loadWikis(context.configRoot).find((item) => item.name === repo);
+		if (!wiki) throw new Error("configured wiki repository is unavailable");
+		const tracking = this.getReviewTracking(context.target);
+		if (tracking && tracking.repo !== repo) throw new Error("saved review belongs to another repository");
+		const result = await readPageCompletion(tracking, list.entries.length, list.source,
+			context.configRoot, resolve(context.configRoot, wiki.repoPath), resolveBinary(this.binaryPath()));
+		return result.text;
 	}
 
 	/** Continue status observation without starting a new paid run. */
@@ -353,6 +395,9 @@ export class PageStaleness {
 
 class PageStalenessModal extends Modal {
 	private entriesEl!: HTMLElement;
+	private completionEl!: HTMLElement;
+	private completionTimer: number | null = null;
+	private entriesRevision = 0;
 	private runEl!: HTMLElement;
 	private reviewEl!: HTMLElement;
 	private closed = false;
@@ -373,6 +418,8 @@ class PageStalenessModal extends Modal {
 		this.contentEl.createEl("h3", { text: "Page staleness" });
 		this.contentEl.createEl("p", { text: this.context.target });
 		this.entriesEl = this.contentEl.createDiv({ cls: "paniolo-page-entries" });
+		this.completionEl = this.contentEl.createDiv({ cls: "paniolo-page-completion" });
+		this.completionEl.setText("Checking completion state…");
 		this.runEl = this.contentEl.createDiv({ cls: "paniolo-page-run" });
 		this.reviewEl = this.contentEl.createDiv({ cls: "paniolo-page-review" });
 		this.entriesEl.setText("Loading open entries…");
@@ -390,10 +437,13 @@ class PageStalenessModal extends Modal {
 		if (run) this.showRun(run);
 		else if (this.controller.getSavedRunId(this.target)) this.runEl.setText("Loading saved report…");
 		void this.loadEntries();
+		this.completionTimer = window.setInterval(() => { void this.loadEntries(); }, 20_000);
 	}
 
 	onClose(): void {
 		this.closed = true;
+		this.entriesRevision++;
+		if (this.completionTimer !== null) window.clearInterval(this.completionTimer);
 		this.controller.panelClosed(this);
 		this.contentEl.empty();
 	}
@@ -443,6 +493,11 @@ class PageStalenessModal extends Modal {
 			const saved = this.controller.getSavedReviewId(plan);
 			if (saved) {
 				this.reviewEl.createEl("p", { text: `Background review already submitted: ${saved}` });
+				void this.controller.rememberReview(plan, this.target, saved)
+					.then(() => this.loadEntries())
+					.catch((error: unknown) => {
+						if (!this.closed) this.completionEl.setText(`Saved review tracking unavailable: ${error instanceof Error ? error.message : String(error)}`);
+					});
 				return;
 			}
 			new Setting(this.reviewEl)
@@ -457,8 +512,9 @@ class PageStalenessModal extends Modal {
 	private async submitReview(plan: PagePrReviewPlan): Promise<void> {
 		this.reviewEl.setText("Submitting exact-head background review…");
 		try {
-			const id = await this.controller.submitReview(plan, this.context.configRoot);
+			const id = await this.controller.submitReview(plan, this.context.configRoot, this.target);
 			if (!this.closed) this.reviewEl.setText(`Background review submitted for ${plan.head.slice(0, 12)}: ${id}. Ledger entries remain open.`);
+			if (!this.closed) void this.loadEntries();
 		} catch (error: unknown) {
 			if (!this.closed) this.reviewEl.setText(`PR review unavailable: ${error instanceof Error ? error.message : String(error)}`);
 		}
@@ -480,6 +536,7 @@ class PageStalenessModal extends Modal {
 	}
 
 	private async loadEntries(): Promise<void> {
+		const request = ++this.entriesRevision;
 		try {
 			const result = await runPaniolo(
 				resolveBinary(this.binaryPath()),
@@ -489,13 +546,20 @@ class PageStalenessModal extends Modal {
 			);
 			if (result.code !== 0) throw new Error(result.stderr.trim() || "entry list unavailable");
 			const list = parseOpenEntries(result.stdout, this.target);
-			if (this.closed) return;
+			if (this.closed || request !== this.entriesRevision) return;
 			this.entriesEl.empty();
 			this.entriesEl.createEl("p", { text: `${list.entries.length} open entr${list.entries.length === 1 ? "y" : "ies"}${list.source === "snapshot" ? " (snapshot)" : ""}` });
 			for (const entry of list.entries) this.renderEntry(entry);
+			try {
+				const text = await this.controller.completion(this.context, list);
+				if (!this.closed && request === this.entriesRevision) this.completionEl.setText(text);
+			} catch (error: unknown) {
+				if (!this.closed && request === this.entriesRevision) this.completionEl.setText(`Completion state unavailable: ${error instanceof Error ? error.message : String(error)}`);
+			}
 		} catch (error: unknown) {
-			if (this.closed) return;
+			if (this.closed || request !== this.entriesRevision) return;
 			this.entriesEl.setText(`Open entries unavailable: ${error instanceof Error ? error.message : String(error)}`);
+			this.completionEl.setText("Completion state unavailable");
 		}
 	}
 
