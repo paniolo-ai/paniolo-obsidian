@@ -27,6 +27,7 @@ import { StalenessIndicator } from "./staleness-indicator";
 import { StalenessCountIndicator } from "./staleness-count-indicator";
 import { PageStaleness } from "./page-staleness";
 import { parsePageReviewTracking } from "./page-staleness-completion";
+import { registerNonGitPage } from "./non-git-vault";
 import { showPageReferences } from "./page-references";
 import { showPageSources } from "./page-sources";
 import { searchRelatedPages } from "./related-pages";
@@ -145,6 +146,26 @@ export default class PanioloPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "register-nongit-staleness-page",
+			name: "Register current non-Git page for staleness",
+			callback: () => {
+				const file = this.app.workspace.getActiveFile();
+				const adapter = this.app.vault.adapter;
+				if (!(file instanceof TFile) || file.extension !== "md" || !(adapter instanceof FileSystemAdapter)) {
+					new Notice("paniolo: select a local Markdown page");
+					return;
+				}
+				new ConfirmModal(
+					this.app,
+					"Register non-Git staleness page",
+					`Register this vault and ${file.path} for single-device staleness writes? This adds a vault manifest and a page ID to the saved note. Keep other synced copies inactive during initial registration.`,
+					"Register",
+					() => { void this.registerNonGitStalenessPage(file, adapter.getBasePath()); },
+				).open();
+			},
+		});
+
+		this.addCommand({
 			id: "search-pages-related-to-selection",
 			name: "Search for pages related to selection",
 			callback: () => this.searchPagesRelatedToSelection(),
@@ -214,6 +235,20 @@ export default class PanioloPlugin extends Plugin {
 		this.stalenessCountIndicator.dispose();
 		this.pageStaleness.dispose();
 		this.actionBar.removeAll();
+	}
+
+	/** Register only the selected saved page after an explicit confirmation. */
+	private async registerNonGitStalenessPage(file: TFile, vaultRoot: string): Promise<void> {
+		try {
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!view || view.file?.path !== file.path || view.editor.getValue() !== await this.app.vault.read(file)) {
+				throw new Error("save the selected editor page before registration");
+			}
+			const identity = await registerNonGitPage(vaultRoot, file.path, this.settings.binaryPath);
+			new Notice(`paniolo: page ${identity.pageId} registered on this device; reopen it to load the new frontmatter`);
+		} catch (error: unknown) {
+			new Notice(`paniolo: registration refused: ${String(error)}`);
+		}
 	}
 
 	async loadSettings(): Promise<void> {
