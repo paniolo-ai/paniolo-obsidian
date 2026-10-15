@@ -35,10 +35,13 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   The optional **Run page report** button submits a detached, exact-page
   report from the current editor bytes and resumes its saved run ID after reload.
   A completed report can preview independently reviewed patches for that exact
-  editor snapshot. Accepting one patch makes a single undoable editor edit on a
-  topic branch. The edit does not close a ledger entry; PR routing, merge, and
-  independent closure are later steps. The snapshot and patch actions require
-  a CLI release that includes the page-run snapshot and reviewed-patch commands.
+  editor snapshot. Accepting one patch makes a single undoable editor edit,
+  creates a topic branch when the vault is on the default branch, runs focused
+  scan and wiki checks after Obsidian saves, then commits only that page and
+  opens or updates its PR. Existing page changes block this route. The edit and
+  PR do not close a ledger entry; merge and independent verification do. The
+  snapshot and patch actions require a CLI release that includes the page-run
+  snapshot and reviewed-patch commands.
 - **Search pages** — searches configured wiki pages by keyword or hybrid qmd
   ranking. Results show an excerpt and can be opened or linked into the active
   note.

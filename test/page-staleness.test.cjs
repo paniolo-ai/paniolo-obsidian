@@ -15,13 +15,18 @@ const target = "wiki:wiki/a.md";
 const file = new TFile("repo/wiki/a.md");
 const pageKey = loadTs("page-staleness-key.ts");
 
-function makeModule(runPaniolo, ui = {}) {
+function makeModule(runPaniolo, ui = {}, pr = {}) {
 	return loadTs("page-staleness.ts", {
 		obsidian: { FileSystemAdapter, TFile, Plugin: class {}, Modal: class {}, Notice: class {}, Setting: class {}, MarkdownView: class {}, ...ui },
 		"@codemirror/state": { Text: { of: () => ({}) } },
 		"./new-page": { loadWikis: () => [{ name: "wiki", repoPath: "repo", wikiRoot: "repo/wiki" }] },
 		"./page-staleness-key": pageKey,
 		"./page-staleness-patch": loadTs("page-staleness-patch.ts"),
+		"./page-staleness-pr": {
+			preparePagePr: async () => ({ branch: "codex/fix-page" }),
+			publishPagePr: async () => "https://example.test/pr/1",
+			...pr,
+		},
 		"./staleness-indicator": { headingLineForAnchor: () => null },
 		"./paniolo": { findConfigRoot: () => root, resolveBinary: () => "paniolo", runPaniolo },
 	});
@@ -158,7 +163,7 @@ test("report replies must match the selected page and saved ID", () => {
 	assert.throws(() => parsePageRunRecord(JSON.stringify({ id: "R1", kind: "page", mode: "report", state: "succeeded", targets: [target], estimate: { page: { snapshot_sha256: "old" } } }), "R1", target, "new"), /different editor snapshot/);
 });
 
-test("a reviewed patch creates one undoable editor edit only on a topic branch with matching bytes", async () => {
+test("a reviewed patch routes to a PR after one undoable editor edit with matching bytes", async () => {
 	let editorText = "# API\nold\n";
 	const original = editorText;
 	const hash = createHash("sha256").update(editorText).digest("hex");
@@ -190,16 +195,25 @@ test("a reviewed patch creates one undoable editor edit only on a topic branch w
 		},
 	};
 	const plugin = { app: { workspace: { getActiveFile: () => file, getActiveViewOfType: () => ({ file, editor }) }, vault: { adapter: new FileSystemAdapter() } } };
-	const { PageStaleness } = makeModule(runPaniolo);
+	const routing = [];
+	const { PageStaleness } = makeModule(runPaniolo, {}, {
+		preparePagePr: async () => {
+			routing.push("prepare");
+			branch = "codex/fix-page";
+			if (changeDuringBranchCheck) editorText = "# API\nlater edit\n";
+			return { branch };
+		},
+		publishPagePr: async () => { routing.push("publish"); return "https://example.test/pr/1"; },
+	});
 	const controller = new PageStaleness(plugin, () => "", () => null, async () => {});
 	const context = { file, configRoot: root, target };
 	const report = { id: "R1", state: "succeeded", reason: "", snapshotHash: hash };
 	const reviewed = await controller.reviewedPatches(context, report);
 	assert.equal(reviewed.patches.length, 1);
-	await assert.rejects(controller.applyPatch(context, reviewed, reviewed.patches[0]), /topic branch/);
-	assert.equal(editorText, original);
-	branch = "codex/fix-page";
-	await controller.applyPatch(context, reviewed, reviewed.patches[0]);
+	const url = await controller.applyPatch(context, reviewed, reviewed.patches[0]);
+	assert.equal(url, "https://example.test/pr/1");
+	assert.equal(branch, "codex/fix-page");
+	assert.deepEqual(routing, ["prepare", "publish"]);
 	assert.equal(editorText, "# API\nnew\n");
 	assert.equal(replacements.length, 1);
 	assert.deepEqual(replacements[0].from, { line: 0, ch: 0 });
