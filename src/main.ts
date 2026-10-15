@@ -26,6 +26,7 @@ import { ActionBar } from "./action-bar";
 import { StalenessIndicator } from "./staleness-indicator";
 import { StalenessCountIndicator } from "./staleness-count-indicator";
 import { PageStaleness } from "./page-staleness";
+import { parsePageReviewTracking } from "./page-staleness-completion";
 import { showPageReferences } from "./page-references";
 import { showPageSources } from "./page-sources";
 import { searchRelatedPages } from "./related-pages";
@@ -83,6 +84,11 @@ export default class PanioloPlugin extends Plugin {
 		(key) => this.settings.pageReviews[key] ?? null,
 		async (key, id) => {
 			this.settings.pageReviews[key] = id;
+			await this.saveSettings();
+		},
+		(target) => this.settings.pageReviewTracking[target] ?? null,
+		async (target, tracking) => {
+			this.settings.pageReviewTracking[target] = tracking;
 			await this.saveSettings();
 		},
 	);
@@ -226,10 +232,18 @@ export default class PanioloPlugin extends Plugin {
 				if (typeof id === "string" && /^PR-[0-9a-f]{64}$/i.test(id)) pageReviews[key] = id;
 			}
 		}
+		const pageReviewTracking: PanioloSettings["pageReviewTracking"] = {};
+		if (typeof record.pageReviewTracking === "object" && record.pageReviewTracking !== null && !Array.isArray(record.pageReviewTracking)) {
+			for (const [target, raw] of Object.entries(record.pageReviewTracking)) {
+				const tracking = parsePageReviewTracking(raw);
+				if (tracking && target.includes(":")) pageReviewTracking[target] = tracking;
+			}
+		}
 		this.settings = {
 			binaryPath: typeof record.binaryPath === "string" ? record.binaryPath : DEFAULT_SETTINGS.binaryPath,
 			pageRuns,
 			pageReviews,
+			pageReviewTracking,
 		};
 	}
 

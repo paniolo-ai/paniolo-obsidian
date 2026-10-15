@@ -42,7 +42,10 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   block this route. **Inspect current PR** displays its exact head, all open
   entry IDs, and the configured role-invocation ceiling. **Start review** is a
   separate action that submits a detached independent review. The saved review
-  ID survives reload; a changed head or entry revision requires a new plan.
+  ID and PR identity survive reload; a changed head or entry revision requires a
+  new plan. The page panel refreshes read-only completion state while open:
+  awaiting merge, retained entries, pending verification, or zero open entries
+  from the current writer. A published snapshot cannot establish closure.
   The edit and PR do not close a ledger entry; merge and writer-owned
   verification do. Snapshot, patch, and review actions require a CLI release
   that includes the page-run snapshot, reviewed-patch, and bounded PR review
