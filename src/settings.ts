@@ -6,11 +6,14 @@ export interface PanioloSettings {
 	binaryPath: string;
 	/** Exact report ID last submitted for each configured wiki page. */
 	pageRuns: Record<string, string>;
+	/** Review IDs for exact repository branch and PR head identities. */
+	pageReviews: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: PanioloSettings = {
 	binaryPath: "",
 	pageRuns: {},
+	pageReviews: {},
 };
 
 export class PanioloSettingTab extends PluginSettingTab {

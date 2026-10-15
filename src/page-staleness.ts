@@ -3,12 +3,13 @@ import { Text } from "@codemirror/state";
 import { createHash } from "crypto";
 import { mkdtemp, rmdir, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { findConfigRoot, resolveBinary, runPaniolo } from "./paniolo";
 import { loadWikis } from "./new-page";
 import { pageKeyForPath } from "./page-staleness-key";
 import { applyReviewedPatch, parseReviewedPagePatches, type ReviewedPagePatches, type ReviewedPatch } from "./page-staleness-patch";
 import { preparePagePr, publishPagePr } from "./page-staleness-pr";
+import { inspectPagePrReview, submitPagePrReview, type PagePrReviewPlan } from "./page-staleness-review";
 import { headingLineForAnchor } from "./staleness-indicator";
 
 type PageContext = { file: TFile; configRoot: string; target: string };
@@ -118,13 +119,47 @@ export class PageStaleness {
 	private panel: PageStalenessModal | null = null;
 	private lastRun: { target: string; run: PageRun } | null = null;
 	private submissions = new Map<string, Promise<void>>();
+	private reviewSubmissions = new Map<string, Promise<string>>();
 
 	constructor(
 		private plugin: Plugin,
 		private binaryPath: () => string,
 		private getRunId: (target: string) => string | null,
 		private saveRunId: (target: string, id: string) => Promise<void>,
+		private getReviewId: (key: string) => string | null = () => null,
+		private saveReviewId: (key: string, id: string) => Promise<void> = async () => {},
 	) {}
+
+	/** Inspect the active topic PR without submitting a review. */
+	async inspectReview(context: PageContext): Promise<PagePrReviewPlan> {
+		const repo = context.target.slice(0, context.target.indexOf(":"));
+		const wiki = loadWikis(context.configRoot).find((item) => item.name === repo);
+		if (!wiki) throw new Error("configured wiki repository is unavailable");
+		return inspectPagePrReview(context.configRoot, resolve(context.configRoot, wiki.repoPath), repo,
+			resolveBinary(this.binaryPath()));
+	}
+
+	getSavedReviewId(plan: PagePrReviewPlan): string | null {
+		return this.getReviewId(plan.key);
+	}
+
+	/** A repeat click joins the saved exact-head review; a changed scope gets a new key. */
+	async submitReview(plan: PagePrReviewPlan, configRoot: string): Promise<string> {
+		const current = await inspectPagePrReview(configRoot, plan.repoRoot, plan.repo, resolveBinary(this.binaryPath()));
+		if (current.key !== plan.key) throw new Error("PR head or open-entry scope changed; inspect the review plan again");
+		const saved = this.getReviewId(plan.key);
+		if (saved) return saved;
+		const pending = this.reviewSubmissions.get(plan.key);
+		if (pending) return pending;
+		const submission = (async (): Promise<string> => {
+			const id = await submitPagePrReview(plan, configRoot, resolveBinary(this.binaryPath()));
+			await this.saveReviewId(plan.key, id);
+			return id;
+		})();
+		this.reviewSubmissions.set(plan.key, submission);
+		try { return await submission; }
+		finally { this.reviewSubmissions.delete(plan.key); }
+	}
 
 	/** Continue status observation without starting a new paid run. */
 	register(): void {
@@ -319,6 +354,7 @@ export class PageStaleness {
 class PageStalenessModal extends Modal {
 	private entriesEl!: HTMLElement;
 	private runEl!: HTMLElement;
+	private reviewEl!: HTMLElement;
 	private closed = false;
 	readonly target: string;
 
@@ -338,6 +374,7 @@ class PageStalenessModal extends Modal {
 		this.contentEl.createEl("p", { text: this.context.target });
 		this.entriesEl = this.contentEl.createDiv({ cls: "paniolo-page-entries" });
 		this.runEl = this.contentEl.createDiv({ cls: "paniolo-page-run" });
+		this.reviewEl = this.contentEl.createDiv({ cls: "paniolo-page-review" });
 		this.entriesEl.setText("Loading open entries…");
 		new Setting(this.contentEl)
 			.setName("Page report")
@@ -345,6 +382,10 @@ class PageStalenessModal extends Modal {
 			.addButton((button) => button.setButtonText("Run page report").onClick(() => {
 				void this.submitReport();
 			}));
+		new Setting(this.contentEl)
+			.setName("Independent PR review")
+			.setDesc("Inspect the current PR head, open entries, and invocation limit before explicitly starting a background review.")
+			.addButton((button) => button.setButtonText("Inspect current PR").onClick(() => { void this.inspectReview(); }));
 		const run = this.controller.getLastRun(this.target);
 		if (run) this.showRun(run);
 		else if (this.controller.getSavedRunId(this.target)) this.runEl.setText("Loading saved report…");
@@ -387,6 +428,40 @@ class PageStalenessModal extends Modal {
 			const url = await this.controller.applyPatch(this.context, result, patch);
 			this.runEl.setText(`Page PR: ${url}. Ledger entries remain open until merge and independent verification.`);
 		} catch (error: unknown) { this.showError(error instanceof Error ? error.message : String(error)); }
+	}
+
+	private async inspectReview(): Promise<void> {
+		this.reviewEl.setText("Loading exact-head review plan…");
+		try {
+			const plan = await this.controller.inspectReview(this.context);
+			if (this.closed) return;
+			const count = plan.files.reduce((total, file) => total + file.entries.length, 0);
+			this.reviewEl.setText(`PR #${plan.prNumber} · head ${plan.head.slice(0, 12)} · ${count} open entries · at most ${plan.maximumRoleInvocations} role invocations of configured ${plan.invocationCeiling}`);
+			for (const file of plan.files) {
+				this.reviewEl.createEl("p", { text: `${file.path}: ${file.entries.map((entry) => entry.id).join(", ") || "zero open entries"}` });
+			}
+			const saved = this.controller.getSavedReviewId(plan);
+			if (saved) {
+				this.reviewEl.createEl("p", { text: `Background review already submitted: ${saved}` });
+				return;
+			}
+			new Setting(this.reviewEl)
+				.setName("Start independent review")
+				.setDesc("May invoke paid model roles in the background. Entries remain open until a later merge and writer-owned verification.")
+				.addButton((button) => button.setButtonText("Start review").setWarning().onClick(() => { void this.submitReview(plan); }));
+		} catch (error: unknown) {
+			if (!this.closed) this.reviewEl.setText(`PR review unavailable: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	private async submitReview(plan: PagePrReviewPlan): Promise<void> {
+		this.reviewEl.setText("Submitting exact-head background review…");
+		try {
+			const id = await this.controller.submitReview(plan, this.context.configRoot);
+			if (!this.closed) this.reviewEl.setText(`Background review submitted for ${plan.head.slice(0, 12)}: ${id}. Ledger entries remain open.`);
+		} catch (error: unknown) {
+			if (!this.closed) this.reviewEl.setText(`PR review unavailable: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 
 	showNoCurrentReport(): void {
