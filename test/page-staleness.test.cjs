@@ -15,7 +15,31 @@ const target = "wiki:wiki/a.md";
 const file = new TFile("repo/wiki/a.md");
 const pageKey = loadTs("page-staleness-key.ts");
 
-function makeModule(runPaniolo, ui = {}, pr = {}) {
+test("saved exact-head review ID survives controller reload and a changed scope gets new work", async () => {
+	const saved = {};
+	let submissions = 0;
+	let currentKey = "wiki:feature@head1#scope1";
+	const { PageStaleness } = makeModule(() => {}, {}, {}, {
+		inspectPagePrReview: async (_root, _repoRoot, _repo, _binary) => ({ key: currentKey }),
+		submitPagePrReview: async () => { submissions++; return `PR-${String(submissions).padStart(64, "a")}`; },
+	});
+	const makeController = () => new PageStaleness({}, () => "paniolo", () => null, async () => {},
+		(key) => saved[key] ?? null, async (key, id) => { saved[key] = id; });
+	const first = makeController();
+	const plan = { key: "wiki:feature@head1#scope1" };
+	const id = await first.submitReview(plan, root);
+	assert.equal(submissions, 1);
+	const reloaded = makeController();
+	assert.equal(reloaded.getSavedReviewId(plan), id);
+	assert.equal(await reloaded.submitReview(plan, root), id);
+	assert.equal(submissions, 1);
+	currentKey = "wiki:feature@head2#scope2";
+	await assert.rejects(reloaded.submitReview(plan, root), /changed/);
+	await reloaded.submitReview({ key: currentKey }, root);
+	assert.equal(submissions, 2);
+});
+
+function makeModule(runPaniolo, ui = {}, pr = {}, review = {}) {
 	return loadTs("page-staleness.ts", {
 		obsidian: { FileSystemAdapter, TFile, Plugin: class {}, Modal: class {}, Notice: class {}, Setting: class {}, MarkdownView: class {}, ...ui },
 		"@codemirror/state": { Text: { of: () => ({}) } },
@@ -26,6 +50,11 @@ function makeModule(runPaniolo, ui = {}, pr = {}) {
 			preparePagePr: async () => ({ branch: "codex/fix-page" }),
 			publishPagePr: async () => "https://example.test/pr/1",
 			...pr,
+		},
+		"./page-staleness-review": {
+			inspectPagePrReview: async () => { throw new Error("review not configured in fixture"); },
+			submitPagePrReview: async () => { throw new Error("review not configured in fixture"); },
+			...review,
 		},
 		"./staleness-indicator": { headingLineForAnchor: () => null },
 		"./paniolo": { findConfigRoot: () => root, resolveBinary: () => "paniolo", runPaniolo },

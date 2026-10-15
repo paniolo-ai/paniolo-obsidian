@@ -38,11 +38,15 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   editor snapshot. Accepting one patch makes a single undoable editor edit,
   creates a topic branch when the vault is on the default branch, runs focused
   scan and wiki checks after Obsidian saves, records its touched-file event,
-  then commits only that page and
-  opens or updates its PR. Existing page changes block this route. The edit and
-  PR do not close a ledger entry; merge and independent verification do. The
-  snapshot and patch actions require a CLI release that includes the page-run
-  snapshot and reviewed-patch commands.
+  then commits only that page and opens or updates its PR. Existing page changes
+  block this route. **Inspect current PR** displays its exact head, all open
+  entry IDs, and the configured role-invocation ceiling. **Start review** is a
+  separate action that submits a detached independent review. The saved review
+  ID survives reload; a changed head or entry revision requires a new plan.
+  The edit and PR do not close a ledger entry; merge and writer-owned
+  verification do. Snapshot, patch, and review actions require a CLI release
+  that includes the page-run snapshot, reviewed-patch, and bounded PR review
+  commands.
 - **Search pages** — searches configured wiki pages by keyword or hybrid qmd
   ranking. Results show an excerpt and can be opened or linked into the active
   note.

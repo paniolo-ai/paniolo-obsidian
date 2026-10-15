@@ -80,6 +80,11 @@ export default class PanioloPlugin extends Plugin {
 			this.settings.pageRuns[target] = id;
 			await this.saveSettings();
 		},
+		(key) => this.settings.pageReviews[key] ?? null,
+		async (key, id) => {
+			this.settings.pageReviews[key] = id;
+			await this.saveSettings();
+		},
 	);
 	private findingsByPath = new Map<string, Finding[]>();
 	private lintTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -215,9 +220,16 @@ export default class PanioloPlugin extends Plugin {
 				if (typeof id === "string" && id) pageRuns[target] = id;
 			}
 		}
+		const pageReviews: Record<string, string> = {};
+		if (typeof record.pageReviews === "object" && record.pageReviews !== null && !Array.isArray(record.pageReviews)) {
+			for (const [key, id] of Object.entries(record.pageReviews)) {
+				if (typeof id === "string" && /^PR-[0-9a-f]{64}$/i.test(id)) pageReviews[key] = id;
+			}
+		}
 		this.settings = {
 			binaryPath: typeof record.binaryPath === "string" ? record.binaryPath : DEFAULT_SETTINGS.binaryPath,
 			pageRuns,
+			pageReviews,
 		};
 	}
 
