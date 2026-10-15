@@ -21,6 +21,7 @@ function makeModule(runPaniolo, ui = {}) {
 		"@codemirror/state": { Text: { of: () => ({}) } },
 		"./new-page": { loadWikis: () => [{ name: "wiki", repoPath: "repo", wikiRoot: "repo/wiki" }] },
 		"./page-staleness-key": pageKey,
+		"./page-staleness-patch": loadTs("page-staleness-patch.ts"),
 		"./staleness-indicator": { headingLineForAnchor: () => null },
 		"./paniolo": { findConfigRoot: () => root, resolveBinary: () => "paniolo", runPaniolo },
 	});
@@ -155,4 +156,61 @@ test("report replies must match the selected page and saved ID", () => {
 	assert.throws(() => parsePageRunRecord(JSON.stringify({ id: "R1", kind: "page", mode: "report", state: "succeeded", targets: ["wiki:wiki/b.md"] }), "R1", target), /no longer matches/);
 	assert.throws(() => parsePageRunSubmission(JSON.stringify({ runId: "R1", target, mode: "report", estimate: { page: { snapshot_sha256: "old" } } }), target, "new"), /different editor bytes/);
 	assert.throws(() => parsePageRunRecord(JSON.stringify({ id: "R1", kind: "page", mode: "report", state: "succeeded", targets: [target], estimate: { page: { snapshot_sha256: "old" } } }), "R1", target, "new"), /different editor snapshot/);
+});
+
+test("a reviewed patch creates one undoable editor edit only on a topic branch with matching bytes", async () => {
+	let editorText = "# API\nold\n";
+	const original = editorText;
+	const hash = createHash("sha256").update(editorText).digest("hex");
+	const patch = "--- a/wiki/a.md\n+++ b/wiki/a.md\n@@ -1,2 +1,2 @@\n # API\n-old\n+new\n";
+	let branch = "main";
+	let changeDuringBranchCheck = false;
+	const replacements = [];
+	const runPaniolo = async (binary, args) => {
+		if (binary === "git") {
+			const command = args.slice(2).join(" ");
+			if (command === "rev-parse --show-toplevel") {
+				if (changeDuringBranchCheck) editorText = "# API\nlater edit\n";
+				return { code: 0, stdout: path.resolve(root, "repo") };
+			}
+			if (command === "symbolic-ref --quiet --short HEAD") return { code: 0, stdout: branch };
+			if (command === "symbolic-ref --quiet --short refs/remotes/origin/HEAD") return { code: 0, stdout: "origin/main" };
+			throw new Error(`unexpected Git command: ${command}`);
+		}
+		assert.ok(args.join(" ").includes("runs patches R1 --json"));
+		return { code: 0, stdout: JSON.stringify({ runId: "R1", target, snapshotSha256: hash, patches: [{ allegationId: "S1", bundleId: "B1", patchHash: "ph", anchor: "api", patch }] }) };
+	};
+	const editor = {
+		getValue: () => editorText,
+		lastLine: () => editorText.split("\n").length - 1,
+		getLine: (line) => editorText.split("\n")[line],
+		replaceRange: (replacement, from, to) => {
+			replacements.push({ from, to, previous: editorText });
+			editorText = replacement;
+		},
+	};
+	const plugin = { app: { workspace: { getActiveFile: () => file, getActiveViewOfType: () => ({ file, editor }) }, vault: { adapter: new FileSystemAdapter() } } };
+	const { PageStaleness } = makeModule(runPaniolo);
+	const controller = new PageStaleness(plugin, () => "", () => null, async () => {});
+	const context = { file, configRoot: root, target };
+	const report = { id: "R1", state: "succeeded", reason: "", snapshotHash: hash };
+	const reviewed = await controller.reviewedPatches(context, report);
+	assert.equal(reviewed.patches.length, 1);
+	await assert.rejects(controller.applyPatch(context, reviewed, reviewed.patches[0]), /topic branch/);
+	assert.equal(editorText, original);
+	branch = "codex/fix-page";
+	await controller.applyPatch(context, reviewed, reviewed.patches[0]);
+	assert.equal(editorText, "# API\nnew\n");
+	assert.equal(replacements.length, 1);
+	assert.deepEqual(replacements[0].from, { line: 0, ch: 0 });
+	assert.deepEqual(replacements[0].to, { line: 2, ch: 0 });
+	editorText = replacements.pop().previous;
+	assert.equal(editorText, original, "one undo step restores the editor buffer");
+	changeDuringBranchCheck = true;
+	await assert.rejects(controller.applyPatch(context, reviewed, reviewed.patches[0]), /changed before patch acceptance/);
+	assert.equal(replacements.length, 0);
+	changeDuringBranchCheck = false;
+	editorText = "# API\nlater edit\n";
+	await assert.rejects(controller.applyPatch(context, reviewed, reviewed.patches[0]), /editor changed/);
+	assert.equal(replacements.length, 0);
 });

@@ -3,10 +3,11 @@ import { Text } from "@codemirror/state";
 import { createHash } from "crypto";
 import { mkdtemp, rmdir, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { findConfigRoot, resolveBinary, runPaniolo } from "./paniolo";
 import { loadWikis } from "./new-page";
 import { pageKeyForPath } from "./page-staleness-key";
+import { applyReviewedPatch, parseReviewedPagePatches, type ReviewedPagePatches, type ReviewedPatch } from "./page-staleness-patch";
 import { headingLineForAnchor } from "./staleness-indicator";
 
 type PageContext = { file: TFile; configRoot: string; target: string };
@@ -47,6 +48,24 @@ function editorSnapshot(plugin: Plugin, context: PageContext): EditorSnapshot {
 
 function snapshotRunKey(target: string, hash: string): string {
 	return `${target}@sha256:${hash}`;
+}
+
+/** Refuse a live edit unless the configured wiki checkout is on a topic branch. */
+async function requireTopicBranch(context: PageContext): Promise<void> {
+	const repoKey = context.target.split(":", 1)[0];
+	const wiki = loadWikis(context.configRoot).find((item) => item.name === repoKey);
+	if (!wiki) throw new Error("configured wiki repository is unavailable");
+	const repoRoot = resolve(context.configRoot, wiki.repoPath);
+	const git = async (...args: string[]): Promise<string> => {
+		const result = await runPaniolo("git", ["-C", repoRoot, ...args], repoRoot, READ_TIMEOUT_MS);
+		if (result.code !== 0) throw new Error(result.stderr.trim() || "Git branch check unavailable");
+		return result.stdout.trim();
+	};
+	const actualRoot = await git("rev-parse", "--show-toplevel");
+	if (resolve(actualRoot).toLowerCase() !== repoRoot.toLowerCase()) throw new Error("page is not in its configured Git checkout");
+	const branch = await git("symbolic-ref", "--quiet", "--short", "HEAD");
+	const defaultBranch = await git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+	if (!branch || branch === defaultBranch.replace(/^origin\//, "")) throw new Error("open a topic branch before applying a page patch");
 }
 
 /** Refuse partial or cross-page list responses; every open ID must be visible. */
@@ -222,6 +241,44 @@ export class PageStaleness {
 		return parsePageRunRecord(result.stdout, id, context.target, snapshotHash);
 	}
 
+	/** Fetch only reviewed patches sealed against the active editor bytes. */
+	async reviewedPatches(context: PageContext, run: PageRun): Promise<ReviewedPagePatches> {
+		if (run.state !== "succeeded") throw new Error("page report has not completed");
+		const snapshot = editorSnapshot(this.plugin, context);
+		if (snapshot.hash !== run.snapshotHash) throw new Error("editor changed since the page report");
+		const result = await runPaniolo(
+			resolveBinary(this.binaryPath()),
+			["stale", "--root", context.configRoot, "runs", "patches", run.id, "--json"],
+			context.configRoot,
+			READ_TIMEOUT_MS,
+		);
+		if (result.code !== 0) throw new Error(result.stderr.trim() || "reviewed patches unavailable");
+		const patches = parseReviewedPagePatches(result.stdout, run.id, context.target, snapshot.hash);
+		if (editorSnapshot(this.plugin, context).hash !== snapshot.hash) throw new Error("editor changed while loading reviewed patches");
+		return patches;
+	}
+
+	/** Make one undoable editor transaction after reviewing a matching page patch. */
+	async applyPatch(context: PageContext, result: ReviewedPagePatches, patch: ReviewedPatch): Promise<void> {
+		if (!result.patches.some((item) => item.bundleId === patch.bundleId && item.patchHash === patch.patchHash
+			&& item.allegationId === patch.allegationId && item.patch === patch.patch)) {
+			throw new Error("patch is not in this reviewed result");
+		}
+		const snapshot = editorSnapshot(this.plugin, context);
+		if (snapshot.hash !== result.snapshotSha256) throw new Error("editor changed since the patch was reviewed");
+		const pagePath = context.target.slice(context.target.indexOf(":") + 1);
+		const patched = applyReviewedPatch(snapshot.text, patch.patch, pagePath);
+		if (patched === snapshot.text) throw new Error("reviewed patch makes no change");
+		await requireTopicBranch(context);
+		const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view || view.file?.path !== context.file.path || editorSnapshot(this.plugin, context).hash !== snapshot.hash) {
+			throw new Error("editor changed before patch acceptance");
+		}
+		const last = view.editor.lastLine();
+		view.editor.replaceRange(patched, { line: 0, ch: 0 }, { line: last, ch: view.editor.getLine(last).length });
+		void this.refreshActiveRun(true);
+	}
+
 	private showRun(target: string, run: PageRun): void {
 		this.lastRun = { target, run };
 		this.statusItem?.setText(`paniolo: ${runLabel(run)}`);
@@ -311,6 +368,32 @@ class PageStalenessModal extends Modal {
 	showRun(run: PageRun): void {
 		if (this.closed) return;
 		this.runEl.setText(`${runLabel(run)} · ${run.id}${run.reason ? ` · ${run.reason}` : ""}`);
+		if (run.state === "succeeded") new Setting(this.runEl)
+			.setName("Reviewed page patches")
+			.setDesc("Preview each independently reviewed patch before editing. Applying does not close ledger entries.")
+			.addButton((button) => button.setButtonText("Review patches").onClick(() => { void this.previewPatches(run); }));
+	}
+
+	private async previewPatches(run: PageRun): Promise<void> {
+		try {
+			const result = await this.controller.reviewedPatches(this.context, run);
+			if (this.closed) return;
+			this.runEl.setText(`${result.patches.length} reviewed patch${result.patches.length === 1 ? "" : "es"} for this editor snapshot`);
+			for (const patch of result.patches) {
+				this.runEl.createEl("p", { text: `${patch.allegationId} · ${patch.bundleId}` });
+				this.runEl.createEl("pre", { cls: "paniolo-report", text: patch.patch });
+				new Setting(this.runEl).addButton((button) => button.setButtonText("Apply this patch").setWarning().onClick(() => {
+					void this.applyPatch(result, patch);
+				}));
+			}
+		} catch (error: unknown) { this.showError(error instanceof Error ? error.message : String(error)); }
+	}
+
+	private async applyPatch(result: ReviewedPagePatches, patch: ReviewedPatch): Promise<void> {
+		try {
+			await this.controller.applyPatch(this.context, result, patch);
+			this.runEl.setText("Patch applied to the editor. Ledger entries remain open until PR merge and independent verification.");
+		} catch (error: unknown) { this.showError(error instanceof Error ? error.message : String(error)); }
 	}
 
 	showNoCurrentReport(): void {
