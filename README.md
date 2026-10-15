@@ -33,9 +33,12 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
 - **Review page staleness** — opens the selected page’s complete list of open
   ledger entries, with IDs, states, anchors, evidence, and heading jumps.
   The optional **Run page report** button submits a detached, exact-page
-  report and resumes its saved run ID after reload. This currently requires a
-  clean committed page. A completed report does not apply a fix or close an
-  entry; patch review and closure are later plan cards.
+  report from the current editor bytes and resumes its saved run ID after reload.
+  A completed report can preview independently reviewed patches for that exact
+  editor snapshot. Accepting one patch makes a single undoable editor edit on a
+  topic branch. The edit does not close a ledger entry; PR routing, merge, and
+  independent closure are later steps. The snapshot and patch actions require
+  a CLI release that includes the page-run snapshot and reviewed-patch commands.
 - **Search pages** — searches configured wiki pages by keyword or hybrid qmd
   ranking. Results show an excerpt and can be opened or linked into the active
   note.
