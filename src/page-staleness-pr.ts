@@ -120,6 +120,17 @@ export async function publishPagePr(
 		throw new Error("page changed during validation; PR publication stopped");
 	}
 	if (await git("symbolic-ref", "--quiet", "--short", "HEAD") !== route.branch) throw new Error("Git branch changed during validation");
+	const eventId = createHash("sha256").update(`${route.runId}\0${allegationId}\0${patchedHash}`, "utf8").digest("hex");
+	const capture = await command(run, binary, ["stale", "--root", configRoot, "record-editor-edit",
+		"--repo", route.wiki.name, "--path", route.pagePath.replace(/\\/g, "/"), "--branch", route.branch,
+		"--session", route.runId, "--event-id", eventId], configRoot);
+	if (capture.code !== 0) throw new Error(capture.stderr.trim() || "editor edit capture failed; PR publication stopped");
+	const recorded: unknown = JSON.parse(capture.stdout);
+	if (typeof recorded !== "object" || recorded === null || !("eventId" in recorded) || recorded.eventId !== eventId
+		|| !("repo" in recorded) || recorded.repo !== route.wiki.name || !("path" in recorded)
+		|| recorded.path !== route.pagePath.replace(/\\/g, "/") || !("branch" in recorded) || recorded.branch !== route.branch) {
+		throw new Error("editor edit capture did not match the accepted page; PR publication stopped");
+	}
 	await checked(run, "git", ["-C", route.repoRoot, "commit", "--only", "-m", `fix(wiki): address ${allegationId}`, "--", route.pagePath], route.repoRoot, GATE_TIMEOUT_MS);
 	const committed = await command(run, "git", ["-C", route.repoRoot, "show", `HEAD:${route.pagePath.replace(/\\/g, "/")}`], route.repoRoot);
 	if (committed.code !== 0 || pageHash(committed.stdout) !== patchedHash || pageHash(await readFile(route.absPath, "utf8")) !== patchedHash) {

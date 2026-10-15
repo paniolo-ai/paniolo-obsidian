@@ -30,6 +30,7 @@ test("a default-branch page joins a new topic PR only after saved bytes and focu
 		git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
 		let pr = [];
 		let blockScan = false;
+		let blockCapture = false;
 		const calls = [];
 		const run = async (binary, args, cwd) => {
 			calls.push([binary, args]);
@@ -37,7 +38,13 @@ test("a default-branch page joins a new topic PR only after saved bytes and focu
 				if (args[1] === "list") return { code: 0, stdout: JSON.stringify(pr), stderr: "" };
 				if (args[1] === "create") return { code: 0, stdout: "https://example.test/pr/1\n", stderr: "" };
 			}
-			if (binary === "paniolo") return { code: blockScan && args[0] === "scan" ? 1 : 0, stdout: "{}", stderr: "" };
+			if (binary === "paniolo") {
+				if (args[0] === "stale") return blockCapture
+					? { code: 1, stdout: "", stderr: "capture unavailable" }
+					: { code: 0, stdout: JSON.stringify({ eventId: args[args.indexOf("--event-id") + 1],
+						repo: args[args.indexOf("--repo") + 1], path: args[args.indexOf("--path") + 1], branch: args[args.indexOf("--branch") + 1] }), stderr: "" };
+				return { code: blockScan && args[0] === "scan" ? 1 : 0, stdout: "{}", stderr: "" };
+			}
 			const result = spawnSync(binary, args, { cwd, encoding: "utf8" });
 			return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 		};
@@ -52,12 +59,17 @@ test("a default-branch page joins a new topic PR only after saved bytes and focu
 		await assert.rejects(publishPagePr(route, digest("# API\nnew\n"), "A1", root, "paniolo", () => digest("# API\nnew\n"), run), /page scan failed/);
 		assert.equal(git("rev-parse", "HEAD"), seedHead, "failed scan must not commit");
 		blockScan = false;
+		blockCapture = true;
+		await assert.rejects(publishPagePr(route, digest("# API\nnew\n"), "A1", root, "paniolo", () => digest("# API\nnew\n"), run), /capture unavailable/);
+		assert.equal(git("rev-parse", "HEAD"), seedHead, "failed capture must not commit");
+		blockCapture = false;
 		const url = await publishPagePr(route, digest("# API\nnew\n"), "A1", root, "paniolo", () => digest("# API\nnew\n"), run);
 		assert.equal(url, "https://example.test/pr/1");
 		assert.equal(git("show", "HEAD:wiki/a.md"), "# API\nnew");
 		assert.equal(git("status", "--porcelain"), "");
 		assert.ok(calls.some(([binary, args]) => binary === "paniolo" && args[0] === "scan"));
 		assert.ok(calls.some(([binary, args]) => binary === "paniolo" && args[0] === "wiki"));
+		assert.ok(calls.some(([binary, args]) => binary === "paniolo" && args.includes("record-editor-edit")));
 		assert.ok(calls.some(([binary, args]) => binary === "gh" && args[1] === "create"));
 		const same = await preparePagePr(root, "wiki:wiki/a.md", page, digest("# API\nnew\n"), "R2", wikis, run);
 		assert.equal(same.branch, route.branch);

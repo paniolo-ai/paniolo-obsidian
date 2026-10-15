@@ -37,7 +37,8 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   A completed report can preview independently reviewed patches for that exact
   editor snapshot. Accepting one patch makes a single undoable editor edit,
   creates a topic branch when the vault is on the default branch, runs focused
-  scan and wiki checks after Obsidian saves, then commits only that page and
+  scan and wiki checks after Obsidian saves, records its touched-file event,
+  then commits only that page and
   opens or updates its PR. Existing page changes block this route. The edit and
   PR do not close a ledger entry; merge and independent verification do. The
   snapshot and patch actions require a CLI release that includes the page-run
