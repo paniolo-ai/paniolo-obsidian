@@ -1,5 +1,8 @@
 import { FileSystemAdapter, MarkdownView, Modal, Notice, Plugin, Setting, TFile } from "obsidian";
 import { Text } from "@codemirror/state";
+import { createHash } from "crypto";
+import { mkdtemp, rmdir, unlink, writeFile } from "fs/promises";
+import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { findConfigRoot, resolveBinary, runPaniolo } from "./paniolo";
 import { loadWikis } from "./new-page";
@@ -10,7 +13,8 @@ type PageContext = { file: TFile; configRoot: string; target: string };
 type OpenEntry = { id: string; state: string; anchor: string; revision: number };
 type OpenList = { source: "active-writer" | "snapshot"; generation: number | null; entries: OpenEntry[] };
 type RunState = "queued" | "preparing" | "running" | "draining" | "paused-budget" | "succeeded" | "failed" | "cancelled";
-type PageRun = { id: string; state: RunState; reason: string };
+type PageRun = { id: string; state: RunState; reason: string; snapshotHash: string };
+type EditorSnapshot = { text: string; hash: string };
 
 const RUN_POLL_MS = 5_000;
 const READ_TIMEOUT_MS = 10_000;
@@ -32,6 +36,17 @@ function resolveActivePage(plugin: Plugin): PageContext {
 	const key = pageKeyForPath(configRoot, absPath, loadWikis(configRoot));
 	if (!("target" in key)) throw new Error(key.reason);
 	return { file, configRoot, target: key.target };
+}
+
+function editorSnapshot(plugin: Plugin, context: PageContext): EditorSnapshot {
+	const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+	if (!view || view.file?.path !== context.file.path) throw new Error("open the selected page in the editor");
+	const text = view.editor.getValue();
+	return { text, hash: createHash("sha256").update(text, "utf8").digest("hex") };
+}
+
+function snapshotRunKey(target: string, hash: string): string {
+	return `${target}@sha256:${hash}`;
 }
 
 /** Refuse partial or cross-page list responses; every open ID must be visible. */
@@ -57,28 +72,32 @@ export function parseOpenEntries(stdout: string, target: string): OpenList {
 }
 
 /** Accept only a detached report for the exact selected page. */
-export function parsePageRunSubmission(stdout: string, target: string): string {
+export function parsePageRunSubmission(stdout: string, target: string, snapshotHash?: string): string {
 	const value: unknown = JSON.parse(stdout);
 	if (!isRecord(value)) throw new Error("invalid page run response");
 	if (value.status === "unavailable") throw new Error(typeof value.reason === "string" ? value.reason : "page run unavailable");
 	if (value.target !== target || value.mode !== "report" || typeof value.runId !== "string" || !value.runId) {
 		throw new Error("page run did not return an exact report ID");
 	}
+	if (snapshotHash !== undefined && (!isRecord(value.estimate) || !isRecord(value.estimate.page)
+		|| value.estimate.page.snapshot_sha256 !== snapshotHash)) throw new Error("page run used different editor bytes");
 	return value.runId;
 }
 
 /** Verify that a polled record still describes the saved page and report mode. */
-export function parsePageRunRecord(stdout: string, id: string, target: string): PageRun {
+export function parsePageRunRecord(stdout: string, id: string, target: string, snapshotHash = ""): PageRun {
 	const value: unknown = JSON.parse(stdout);
 	if (!isRecord(value) || value.id !== id || value.kind !== "page" || value.mode !== "report"
 		|| !Array.isArray(value.targets) || value.targets.length !== 1 || value.targets[0] !== target
 		|| !RUN_STATES.includes(value.state as RunState)) {
 		throw new Error("run record no longer matches this page");
 	}
+	if (snapshotHash && (!isRecord(value.estimate) || !isRecord(value.estimate.page)
+		|| value.estimate.page.snapshot_sha256 !== snapshotHash)) throw new Error("report belongs to a different editor snapshot");
 	const history = Array.isArray(value.history) ? value.history : [];
 	const last: unknown = history[history.length - 1];
 	const reason = isRecord(last) && typeof last.reason === "string" ? last.reason : "";
-	return { id, state: value.state as RunState, reason };
+	return { id, state: value.state as RunState, reason, snapshotHash };
 }
 
 function runLabel(run: PageRun): string {
@@ -137,7 +156,10 @@ export class PageStaleness {
 	}
 
 	getSavedRunId(target: string): string | null {
-		return this.getRunId(target);
+		try {
+			const context = resolveActivePage(this.plugin);
+			return context.target === target ? this.getRunId(snapshotRunKey(target, editorSnapshot(this.plugin, context).hash)) : null;
+		} catch { return null; }
 	}
 
 	/** A repeat click joins the known active run; only an explicit later click starts another. */
@@ -151,30 +173,45 @@ export class PageStaleness {
 	}
 
 	private async submitOnce(context: PageContext): Promise<void> {
-		const existing = this.getRunId(context.target);
+		const snapshot = editorSnapshot(this.plugin, context);
+		const key = snapshotRunKey(context.target, snapshot.hash);
+		const existing = this.getRunId(key);
 		if (existing) {
-			const current = await this.readRun(context, existing);
+			const current = await this.readRun(context, existing, snapshot.hash);
+			if (editorSnapshot(this.plugin, context).hash !== snapshot.hash) throw new Error("editor changed while reading the saved report");
 			if (!(["succeeded", "failed", "cancelled"] as RunState[]).includes(current.state)) {
 				if (this.plugin.app.workspace.getActiveFile()?.path === context.file.path) this.showRun(context.target, current);
 				return;
 			}
 		}
-		const result = await runPaniolo(
-			resolveBinary(this.binaryPath()),
-			["stale", "--root", context.configRoot, "run", "--page", context.target, "--detach"],
-			context.configRoot,
-			SUBMIT_TIMEOUT_MS,
-		);
-		if (result.code !== 0) throw new Error(result.stderr.trim() || "page report could not start");
-		const id = parsePageRunSubmission(result.stdout, context.target);
-		await this.saveRunId(context.target, id);
+		const directory = await mkdtemp(join(tmpdir(), "paniolo-page-snapshot-"));
+		const file = join(directory, "editor.md");
+		let id: string;
+		try {
+			await writeFile(file, snapshot.text, { encoding: "utf8", flag: "wx", mode: 0o600 });
+			if (editorSnapshot(this.plugin, context).hash !== snapshot.hash) throw new Error("editor changed before report submission");
+			const result = await runPaniolo(
+				resolveBinary(this.binaryPath()),
+				["stale", "--root", context.configRoot, "run", "--page", context.target, "--detach",
+					"--page-snapshot-file", file, "--page-snapshot-sha256", snapshot.hash],
+				context.configRoot,
+				SUBMIT_TIMEOUT_MS,
+			);
+			if (result.code !== 0) throw new Error(result.stderr.trim() || "page report could not start");
+			id = parsePageRunSubmission(result.stdout, context.target, snapshot.hash);
+			await this.saveRunId(key, id);
+		} finally {
+			await unlink(file).catch(() => {});
+			await rmdir(directory);
+		}
+		if (editorSnapshot(this.plugin, context).hash !== snapshot.hash) throw new Error("editor changed during report submission; old snapshot run was saved separately");
 		if (this.plugin.app.workspace.getActiveFile()?.path === context.file.path) {
-			this.showRun(context.target, { id, state: "queued", reason: "" });
+			this.showRun(context.target, { id, state: "queued", reason: "", snapshotHash: snapshot.hash });
 		}
 		void this.refreshActiveRun();
 	}
 
-	private async readRun(context: PageContext, id: string): Promise<PageRun> {
+	private async readRun(context: PageContext, id: string, snapshotHash: string): Promise<PageRun> {
 		const result = await runPaniolo(
 			resolveBinary(this.binaryPath()),
 			["stale", "--root", context.configRoot, "runs", "show", id, "--json"],
@@ -182,7 +219,7 @@ export class PageStaleness {
 			READ_TIMEOUT_MS,
 		);
 		if (result.code !== 0) throw new Error(result.stderr.trim() || "run status unavailable");
-		return parsePageRunRecord(result.stdout, id, context.target);
+		return parsePageRunRecord(result.stdout, id, context.target, snapshotHash);
 	}
 
 	private showRun(target: string, run: PageRun): void {
@@ -196,16 +233,20 @@ export class PageStaleness {
 		const request = ++this.revision;
 		let context: PageContext;
 		try { context = resolveActivePage(this.plugin); } catch { return; }
-		const id = this.getRunId(context.target);
+		let snapshot: EditorSnapshot;
+		try { snapshot = editorSnapshot(this.plugin, context); } catch { this.statusItem?.setText("paniolo: open page in editor"); return; }
+		const id = this.getRunId(snapshotRunKey(context.target, snapshot.hash));
 		if (!id) {
-			this.statusItem?.setText("paniolo: no page report");
+			this.statusItem?.setText("paniolo: no report for this edit");
+			if (this.panel?.target === context.target) this.panel.showNoCurrentReport();
 			return;
 		}
-		if (!force && this.lastRun?.target === context.target && this.lastRun.run.id === id
+		if (!force && this.lastRun?.target === context.target && this.lastRun.run.id === id && this.lastRun.run.snapshotHash === snapshot.hash
 			&& (["succeeded", "failed", "cancelled"] as RunState[]).includes(this.lastRun.run.state)) return;
 		try {
-			const run = await this.readRun(context, id);
-			if (this.revision === request && this.plugin.app.workspace.getActiveFile()?.path === context.file.path) {
+			const run = await this.readRun(context, id, snapshot.hash);
+			if (this.revision === request && this.plugin.app.workspace.getActiveFile()?.path === context.file.path
+				&& editorSnapshot(this.plugin, context).hash === snapshot.hash) {
 				this.showRun(context.target, run);
 			}
 		} catch (error: unknown) {
@@ -217,7 +258,12 @@ export class PageStaleness {
 	}
 
 	getLastRun(target: string): PageRun | null {
-		return this.lastRun?.target === target ? this.lastRun.run : null;
+		try {
+			const context = resolveActivePage(this.plugin);
+			return context.target === target && this.lastRun?.target === target
+				&& this.lastRun.run.snapshotHash === editorSnapshot(this.plugin, context).hash
+				? this.lastRun.run : null;
+		} catch { return null; }
 	}
 }
 
@@ -246,7 +292,7 @@ class PageStalenessModal extends Modal {
 		this.entriesEl.setText("Loading open entries…");
 		new Setting(this.contentEl)
 			.setName("Page report")
-			.setDesc("Runs in the background on the committed page. This does not apply a fix.")
+			.setDesc("Runs in the background on the current editor snapshot. This does not apply a fix.")
 			.addButton((button) => button.setButtonText("Run page report").onClick(() => {
 				void this.submitReport();
 			}));
@@ -265,6 +311,10 @@ class PageStalenessModal extends Modal {
 	showRun(run: PageRun): void {
 		if (this.closed) return;
 		this.runEl.setText(`${runLabel(run)} · ${run.id}${run.reason ? ` · ${run.reason}` : ""}`);
+	}
+
+	showNoCurrentReport(): void {
+		if (!this.closed) this.runEl.setText("No report for the current editor snapshot");
 	}
 
 	showError(message: string): void {
