@@ -22,6 +22,7 @@ test("a late count for page A cannot overwrite page B, and a ledger-only refresh
 		"./new-page": { loadWikis: () => [wiki] },
 		"./page-staleness-key": pageKey,
 		"./staleness-count": count,
+		"./non-git-staleness": { readVaultPage: async () => { throw new Error("Git fixture"); } },
 		"./paniolo": {
 			findConfigRoot: () => root,
 			resolveBinary: () => "paniolo",
@@ -42,4 +43,26 @@ test("a late count for page A cannot overwrite page B, and a ledger-only refresh
 	requests[2]({ code: 0, stdout: JSON.stringify({ target: "wiki:wiki/b.md", status: "available", source: "active-writer", count: 0, generation: 4 }) });
 	await third;
 	assert.equal(indicator.displayForPath("repo/wiki/b.md").text, "0 open entries");
+});
+
+test("a registered non-Git page reads its device-local ledger without a configured repo", async () => {
+	const file = new TFile("note.md");
+	const plugin = { app: { workspace: { getActiveFile: () => file }, vault: { adapter: new FileSystemAdapter() } } };
+	const calls = [];
+	const indicatorModule = loadTs("staleness-count-indicator.ts", {
+		obsidian: { FileSystemAdapter, TFile, Plugin: class {} },
+		fs: { existsSync: () => true },
+		"./new-page": { loadWikis: () => [] },
+		"./page-staleness-key": pageKey,
+		"./staleness-count": count,
+		"./non-git-staleness": { readVaultPage: async (...args) => {
+			calls.push(args);
+			return { count: 3, generation: 8, source: "active-writer" };
+		} },
+		"./paniolo": { findConfigRoot: () => null, resolveBinary: () => "paniolo", runPaniolo: () => { throw new Error("Git CLI called"); } },
+	});
+	const indicator = new indicatorModule.StalenessCountIndicator(plugin, () => "paniolo", () => {});
+	await indicator.refresh();
+	assert.equal(indicator.displayForPath("note.md").text, "3 open entries");
+	assert.equal(calls[0][1], "note.md");
 });
