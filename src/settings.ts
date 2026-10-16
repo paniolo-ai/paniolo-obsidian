@@ -1,6 +1,7 @@
 import { App, FileSystemAdapter, PluginSettingTab, Setting } from "obsidian";
 import type PanioloPlugin from "./main";
 import type { PageReviewTracking } from "./page-staleness-completion";
+import type { VaultReviewPlan } from "./non-git-review";
 import { readVaultWriterState } from "./non-git-vault";
 
 export interface PanioloSettings {
@@ -12,6 +13,8 @@ export interface PanioloSettings {
 	pageReviews: Record<string, string>;
 	/** Last exact PR review attached to each edited page. */
 	pageReviewTracking: Record<string, PageReviewTracking>;
+	/** Last exact saved-byte review for each stable non-Git vault/page ID. */
+	vaultReviews: Record<string, VaultReviewPlan>;
 }
 
 export const DEFAULT_SETTINGS: PanioloSettings = {
@@ -19,6 +22,7 @@ export const DEFAULT_SETTINGS: PanioloSettings = {
 	pageRuns: {},
 	pageReviews: {},
 	pageReviewTracking: {},
+	vaultReviews: {},
 };
 
 export class PanioloSettingTab extends PluginSettingTab {
