@@ -28,6 +28,7 @@ import { StalenessCountIndicator } from "./staleness-count-indicator";
 import { PageStaleness } from "./page-staleness";
 import { parsePageReviewTracking } from "./page-staleness-completion";
 import { registerNonGitPage } from "./non-git-vault";
+import { NonGitPageStalenessModal } from "./non-git-page-modal";
 import { showPageReferences } from "./page-references";
 import { showPageSources } from "./page-sources";
 import { searchRelatedPages } from "./related-pages";
@@ -142,7 +143,7 @@ export default class PanioloPlugin extends Plugin {
 		this.addCommand({
 			id: "fix-page-staleness",
 			name: "Review page staleness",
-			callback: () => this.pageStaleness.openActivePage(),
+			callback: () => this.openPageStaleness(),
 		});
 
 		this.addCommand({
@@ -235,6 +236,25 @@ export default class PanioloPlugin extends Plugin {
 		this.stalenessCountIndicator.dispose();
 		this.pageStaleness.dispose();
 		this.actionBar.removeAll();
+	}
+
+	/** Route registered non-Git pages to their local writer ledger. */
+	private openPageStaleness(): void {
+		const file = this.app.workspace.getActiveFile();
+		const adapter = this.app.vault.adapter;
+		if (!(file instanceof TFile) || file.extension !== "md" || !(adapter instanceof FileSystemAdapter)) {
+			this.pageStaleness.openActivePage();
+			return;
+		}
+		const vaultRoot = adapter.getBasePath();
+		const absPath = join(vaultRoot, file.path);
+		const configRoot = findConfigRoot(dirname(absPath));
+		const wiki = configRoot ? wikiForAbsPath(configRoot, absPath, loadWikis(configRoot)) : null;
+		if (!wiki && existsSync(join(vaultRoot, ".paniolo", "stale-vault.json"))) {
+			new NonGitPageStalenessModal(this.app, vaultRoot, file.path, this.settings.binaryPath).open();
+			return;
+		}
+		this.pageStaleness.openActivePage();
 	}
 
 	/** Register only the selected saved page after an explicit confirmation. */

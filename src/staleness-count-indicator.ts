@@ -1,9 +1,11 @@
 import { FileSystemAdapter, Plugin, TFile } from "obsidian";
 import { dirname, join } from "path";
+import { existsSync } from "fs";
 import { findConfigRoot, resolveBinary, runPaniolo } from "./paniolo";
 import { loadWikis } from "./new-page";
 import { pageKeyForPath } from "./page-staleness-key";
 import { countFromCli, countLabel } from "./staleness-count";
+import { readVaultPage } from "./non-git-staleness";
 
 export type CountDisplay = { text: string; source: "active-writer" | "snapshot" | "unavailable" | "checking" };
 
@@ -73,18 +75,25 @@ export class StalenessCountIndicator {
 			const adapter = this.plugin.app.vault.adapter;
 			if (!(adapter instanceof FileSystemAdapter)) throw new Error("unsupported vault adapter");
 			const absPath = join(adapter.getBasePath(), file.path);
+			const vaultRoot = adapter.getBasePath();
 			const configRoot = findConfigRoot(dirname(absPath));
-			if (!configRoot) throw new Error("no paniolo.config.json above this page");
-			const key = pageKeyForPath(configRoot, absPath, loadWikis(configRoot));
-			if (!("target" in key)) throw new Error(key.reason);
-			const result = await runPaniolo(
-				resolveBinary(this.binaryPath()),
-				["stale", "--root", configRoot, "counts", "--only", key.target, "--json"],
-				configRoot,
-				COUNT_TIMEOUT_MS,
-			);
-			if (result.code !== 0) throw new Error(result.stderr.trim() || "count read failed");
-			const count = countFromCli(result.stdout, key.target);
+			const key = configRoot ? pageKeyForPath(configRoot, absPath, loadWikis(configRoot)) : null;
+			let count;
+			if (configRoot && key && "target" in key) {
+				const result = await runPaniolo(
+					resolveBinary(this.binaryPath()),
+					["stale", "--root", configRoot, "counts", "--only", key.target, "--json"],
+					configRoot,
+					COUNT_TIMEOUT_MS,
+				);
+				if (result.code !== 0) throw new Error(result.stderr.trim() || "count read failed");
+				count = countFromCli(result.stdout, key.target);
+			} else if (existsSync(join(vaultRoot, ".paniolo", "stale-vault.json"))) {
+				const vault = await readVaultPage(vaultRoot, file.path, this.binaryPath());
+				count = { count: vault.count, generation: vault.generation, source: vault.source };
+			} else {
+				throw new Error("page is not configured for staleness");
+			}
 			if (this.revision === request && this.plugin.app.workspace.getActiveFile()?.path === file.path) {
 				this.show(file.path, { text: countLabel(count), source: count.source });
 			}
