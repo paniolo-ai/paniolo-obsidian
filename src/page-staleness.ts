@@ -114,7 +114,7 @@ function runLabel(run: PageRun): string {
 
 /** Track one durable report ID and poll only the active page after reload. */
 export class PageStaleness {
-	private statusItem: HTMLElement | null = null;
+	private statusText = "No report for this edit";
 	private timer: number | null = null;
 	private revision = 0;
 	private panel: PageStalenessModal | null = null;
@@ -131,7 +131,18 @@ export class PageStaleness {
 		private saveReviewId: (key: string, id: string) => Promise<void> = async () => {},
 		private getReviewTracking: (target: string) => PageReviewTracking | null = () => null,
 		private saveReviewTracking: (target: string, tracking: PageReviewTracking) => Promise<void> = async () => {},
+		private onStatusChange: () => void = () => {},
 	) {}
+
+	/** Current report state for the compact stats modal. */
+	displayStatus(): string {
+		return this.statusText;
+	}
+
+	private setStatus(text: string): void {
+		this.statusText = text;
+		this.onStatusChange();
+	}
 
 	/** Inspect the active topic PR without submitting a review. */
 	async inspectReview(context: PageContext): Promise<PagePrReviewPlan> {
@@ -205,7 +216,6 @@ export class PageStaleness {
 
 	/** Continue status observation without starting a new paid run. */
 	register(): void {
-		this.statusItem = this.plugin.addStatusBarItem();
 		this.plugin.registerEvent(this.plugin.app.workspace.on("file-open", () => { void this.refreshActiveRun(true); }));
 		this.timer = window.setInterval(() => { void this.refreshActiveRun(); }, RUN_POLL_MS);
 		this.plugin.registerInterval(this.timer);
@@ -350,7 +360,7 @@ export class PageStaleness {
 
 	private showRun(target: string, run: PageRun): void {
 		this.lastRun = { target, run };
-		this.statusItem?.setText(`paniolo: ${runLabel(run)}`);
+		this.setStatus(runLabel(run));
 		if (this.panel?.target === target) this.panel.showRun(run);
 	}
 
@@ -358,12 +368,12 @@ export class PageStaleness {
 	async refreshActiveRun(force = false): Promise<void> {
 		const request = ++this.revision;
 		let context: PageContext;
-		try { context = resolveActivePage(this.plugin); } catch { return; }
+		try { context = resolveActivePage(this.plugin); } catch { this.setStatus("No report for this page"); return; }
 		let snapshot: EditorSnapshot;
-		try { snapshot = editorSnapshot(this.plugin, context); } catch { this.statusItem?.setText("paniolo: open page in editor"); return; }
+		try { snapshot = editorSnapshot(this.plugin, context); } catch { this.setStatus("Open page in editor"); return; }
 		const id = this.getRunId(snapshotRunKey(context.target, snapshot.hash));
 		if (!id) {
-			this.statusItem?.setText("paniolo: no report for this edit");
+			this.setStatus("No report for this edit");
 			if (this.panel?.target === context.target) this.panel.showNoCurrentReport();
 			return;
 		}
@@ -377,7 +387,7 @@ export class PageStaleness {
 			}
 		} catch (error: unknown) {
 			if (this.revision === request) {
-				this.statusItem?.setText("paniolo: report status unavailable");
+				this.setStatus("Report status unavailable");
 				if (this.panel?.target === context.target) this.panel.showError(error instanceof Error ? error.message : String(error));
 			}
 		}

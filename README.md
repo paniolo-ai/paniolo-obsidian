@@ -16,14 +16,19 @@ Desktop only (`isDesktopOnly: true`) — it shells out to the `paniolo` binary.
   when the file lives under a `wiki/` root, against the nearest
   `paniolo.config.json`. Findings render as CodeMirror diagnostics —
   squiggles, hover messages, and a lint gutter — with the error/warn count
-  in the status bar. The active Markdown page is also linted 800 ms after
+  in **Paniolo ▸ View stats**. The active Markdown page is also linted 800 ms after
   its last saved change; the manual command remains available for an
   immediate check.
 - **Paniolo ▸ action bar** — a per-note footer button that opens a menu over
-  the same commands the palette exposes. Wiki entries only appear when the
-  open file is under a `wiki/` root, so ordinary notes never see them.
+  the same commands the palette exposes. Its **View stats** item opens the
+  current page's lint, watched-change, open-entry, and report readings in a
+  modal. From there, **Check lint** runs the page checks, **Review & repair**
+  opens the existing review flow when entries are open, and **Refresh** re-reads
+  the status sources. The lint button is disabled while its check runs, and
+  Activity highlights work in progress or an error. Wiki entries only appear
+  when the open file is under a `wiki/` root, so ordinary notes never see them.
 - **Open staleness count** — shows the current wiki page’s unresolved ledger
-  count beside the separate watched-signal indicator. Search, related, and
+  count in **View stats**, alongside watched changes. Search, related, and
   selection results use the count already returned by qmd. A snapshot count
   is marked as such; an unavailable count never appears as zero.
 - **Search for related pages** — uses the open note's title and opening text

@@ -13,9 +13,26 @@
 	cursor: pointer;
 }
 
-.paniolo-staleness-label {
-	align-self: center;
-	font-size: var(--font-ui-smaller);
+.paniolo-stats-activity-busy,
+.paniolo-stats-activity-error {
+	padding-left: 8px;
+	background: var(--background-modifier-hover);
+}
+
+.paniolo-stats-activity-busy {
+	border-left: 3px solid var(--interactive-accent);
+}
+
+.paniolo-stats-activity-busy .setting-item-description {
+	color: var(--text-accent);
+}
+
+.paniolo-stats-activity-error {
+	border-left: 3px solid var(--text-error);
+}
+
+.paniolo-stats-activity-error .setting-item-description {
+	color: var(--text-error);
 }
 
 .paniolo-count-badge {
@@ -41,18 +58,6 @@
 	overflow-wrap: anywhere;
 }
 
-.paniolo-staleness-signals {
-	color: var(--text-warning);
-}
-
-.paniolo-staleness-clean {
-	color: var(--text-success);
-}
-
-.paniolo-staleness-unwatched {
-	color: var(--text-muted);
-}
-
 .nav-file-title.paniolo-staleness-signals .nav-file-title-content {
 	color: var(--text-warning);
 }
@@ -63,11 +68,6 @@
 
 .nav-file-title.paniolo-staleness-unwatched .nav-file-title-content {
 	color: var(--text-muted);
-}
-
-.paniolo-staleness-neutral,
-.paniolo-staleness-checking {
-	color: var(--text-faint);
 }
 
 .paniolo-confirm-body {

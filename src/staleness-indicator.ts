@@ -22,7 +22,6 @@ type StalenessSignal = { anchor: string; entity: string; commit: string };
 
 type SignalResult = { display: IndicatorDisplay; signals: StalenessSignal[] };
 
-const STATE_CLASSES: IndicatorState[] = ["signals", "clean", "unwatched", "neutral", "checking"];
 const SAVE_DELAY_MS = 500;
 const EXPLORER_DELAY_MS = 1000;
 const EXPLORER_CLASSES = ["signals", "clean", "unwatched"] as const;
@@ -183,7 +182,6 @@ export function signalsToDiagnostics(doc: Text, signals: StalenessSignal[]): Dia
 
 /** Read-only staleness nominations for the active Markdown page. */
 export class StalenessIndicator {
-	private statusItem: HTMLElement | null = null;
 	private cache = new Map<string, CachedDisplay>();
 	private displays = new Map<string, IndicatorDisplay>();
 	private signals = new Map<string, StalenessSignal[]>();
@@ -200,9 +198,8 @@ export class StalenessIndicator {
 		private onDisplayChange: () => void,
 	) {}
 
-	/** Register open/save events and a status item separate from lint status. */
+	/** Register open/save events for the current page's watched changes. */
 	register(): void {
-		this.statusItem = this.plugin.addStatusBarItem();
 		this.plugin.registerEvent(this.plugin.app.workspace.on("file-open", () => {
 			void this.refreshActiveFile();
 		}));
@@ -255,18 +252,7 @@ export class StalenessIndicator {
 	private show(path: string, display: IndicatorDisplay, signals: StalenessSignal[] = []): void {
 		this.displays.set(path, display);
 		this.signals.set(path, signals);
-		if (this.plugin.app.workspace.getActiveFile()?.path === path) {
-			this.renderStatus(display);
-		}
 		this.onDisplayChange();
-	}
-
-	private renderStatus(display: IndicatorDisplay): void {
-		const item = this.statusItem;
-		if (!item) return;
-		for (const state of STATE_CLASSES) item.classList.remove(`paniolo-staleness-${state}`);
-		item.classList.add(`paniolo-staleness-${display.state}`);
-		item.setText(`paniolo staleness: ${display.text}`);
 	}
 
 	private scheduleExplorer(): void {
@@ -342,17 +328,17 @@ export class StalenessIndicator {
 		}
 	}
 
-	/** Reuse a cached result when reopening a file with unchanged mtime. */
-	private async refreshActiveFile(): Promise<void> {
+	/** Reuse saved results on navigation, or re-read signals on a manual refresh. */
+	async refreshActiveFile(force = false): Promise<void> {
 		const file = this.plugin.app.workspace.getActiveFile();
 		const request = ++this.revision;
 		if (!(file instanceof TFile) || file.extension !== "md") {
-			this.renderStatus({ state: "neutral", text: "No Markdown page" });
+			this.onDisplayChange();
 			return;
 		}
 		const cached = this.cache.get(file.path);
 		const mtime = file.stat.mtime;
-		if (cached?.mtime === mtime) {
+		if (!force && cached?.mtime === mtime) {
 			this.show(file.path, cached.display, cached.signals);
 			return;
 		}
