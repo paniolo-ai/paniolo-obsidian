@@ -23,6 +23,7 @@ import {
 	runPaniolo,
 } from "./paniolo";
 import { ActionBar } from "./action-bar";
+import { StatsModal, type StatsSnapshot } from "./stats-modal";
 import { StalenessIndicator } from "./staleness-indicator";
 import { StalenessCountIndicator } from "./staleness-count-indicator";
 import { PageStaleness } from "./page-staleness";
@@ -57,24 +58,21 @@ function argsTail(args: string[]): string {
 
 export default class PanioloPlugin extends Plugin {
 	settings: PanioloSettings = DEFAULT_SETTINGS;
-	private statusItem: HTMLElement | null = null;
-	private actionBar = new ActionBar(
-		this,
-		(path) => this.stalenessIndicator.displayForPath(path),
-		(path) => this.stalenessCountIndicator.displayForPath(path),
-	);
+	private activityStatus = "ready";
+	private statsModal: StatsModal | null = null;
+	private actionBar = new ActionBar(this);
 	private stalenessIndicator = new StalenessIndicator(
 		this,
 		() => this.settings.binaryPath,
 		() => {
-			this.actionBar.refreshAll();
+			this.statsModal?.render();
 			this.applyStored();
 		},
 	);
 	private stalenessCountIndicator = new StalenessCountIndicator(
 		this,
 		() => this.settings.binaryPath,
-		() => this.actionBar.refreshAll(),
+		() => this.statsModal?.render(),
 	);
 	private pageStaleness = new PageStaleness(
 		this,
@@ -94,18 +92,35 @@ export default class PanioloPlugin extends Plugin {
 			this.settings.pageReviewTracking[target] = tracking;
 			await this.saveSettings();
 		},
+		() => this.statsModal?.render(),
 	);
 	private findingsByPath = new Map<string, Finding[]>();
 	private lintTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private lintRevisions = new Map<string, number>();
+	private lintingRevisions = new Map<string, number>();
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
 		this.registerEditorExtension([lintGutter()]);
-		this.statusItem = this.addStatusBarItem();
-		this.setStatus("ready");
 		this.addSettingTab(new PanioloSettingTab(this.app, this));
+
+		this.addCommand({
+			id: "view-stats",
+			name: "View stats",
+			callback: () => {
+				this.statsModal?.close();
+				this.statsModal = new StatsModal(
+					this.app,
+					() => this.statsSnapshot(),
+					() => this.lintActiveFile(),
+					() => this.openPageStaleness(),
+					() => this.refreshStats(),
+					() => { this.statsModal = null; },
+				);
+				this.statsModal.open();
+			},
+		});
 
 		this.addCommand({
 			id: "lint-this-page",
@@ -232,10 +247,12 @@ export default class PanioloPlugin extends Plugin {
 		for (const timer of this.lintTimers.values()) clearTimeout(timer);
 		this.lintTimers.clear();
 		this.lintRevisions.clear();
+		this.lintingRevisions.clear();
 		this.findingsByPath.clear();
 		this.stalenessIndicator.dispose();
 		this.stalenessCountIndicator.dispose();
 		this.pageStaleness.dispose();
+		this.statsModal?.close();
 		this.actionBar.removeAll();
 	}
 
@@ -324,7 +341,41 @@ export default class PanioloPlugin extends Plugin {
 	}
 
 	private setStatus(text: string): void {
-		this.statusItem?.setText(`paniolo: ${text}`);
+		this.activityStatus = text;
+		this.statsModal?.render();
+	}
+
+	/** Gather the active page's existing checks when the user opens Stats. */
+	private statsSnapshot(): StatsSnapshot {
+		const file = this.app.workspace.getActiveFile();
+		const path = file instanceof TFile && file.extension === "md" ? file.path : null;
+		const findings = path === null ? null : this.findingsByPath.get(path);
+		const openEntries = path === null ? null : this.stalenessCountIndicator.displayForPath(path);
+		const linting = path !== null && this.lintingRevisions.has(path);
+		const activity = linting ? "linting…" : this.activityStatus === "linting…" ? "ready" : this.activityStatus;
+		const errors = findings?.filter((finding) => finding.severity === "error").length ?? 0;
+		const warnings = findings?.filter((finding) => finding.severity === "warn").length ?? 0;
+		return {
+			page: path ?? "No Markdown page open",
+			activity,
+			activityTone: linting || activity.endsWith("…") ? "busy" : activity === "error" ? "error" : "normal",
+			lint: findings === undefined || findings === null ? "Not checked" : findings.length === 0 ? "No findings" : `${errors} errors · ${warnings} warnings`,
+			watchedChanges: path === null ? "No Markdown page" : this.stalenessIndicator.displayForPath(path)?.text ?? "Checking…",
+			openEntries: path === null ? "No Markdown page" : openEntries?.text ?? "Checking…",
+			pageReport: path === null ? "No Markdown page" : this.pageStaleness.displayStatus(),
+			canCheckLint: path !== null && !linting,
+			linting,
+			canReviewStaleness: path !== null && openEntries?.count !== null && openEntries?.count !== undefined && openEntries.count > 0,
+		};
+	}
+
+	/** Re-read status sources without launching lint or a paid page report. */
+	private async refreshStats(): Promise<void> {
+		await Promise.all([
+			this.stalenessIndicator.refreshActiveFile(true),
+			this.stalenessCountIndicator.refresh(),
+			this.pageStaleness.refreshActiveRun(true),
+		]);
 	}
 
 	/** The live CodeMirror view for the active markdown editor, if any. */
@@ -935,6 +986,8 @@ export default class PanioloPlugin extends Plugin {
 
 		const binary = resolveBinary(this.settings.binaryPath);
 		const configPath = join(configRoot, "paniolo.config.json");
+		this.lintingRevisions.set(file.path, revision);
+		this.statsModal?.render();
 		if (this.app.workspace.getActiveFile()?.path === file.path) this.setStatus("linting…");
 
 		try {
@@ -989,6 +1042,11 @@ export default class PanioloPlugin extends Plugin {
 				new Notice("paniolo: lint timed out");
 			} else {
 				new Notice(`paniolo: lint failed — ${(e as Error).message}`);
+			}
+		} finally {
+			if (this.lintingRevisions.get(file.path) === revision) {
+				this.lintingRevisions.delete(file.path);
+				this.statsModal?.render();
 			}
 		}
 	}

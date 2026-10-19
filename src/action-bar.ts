@@ -1,6 +1,4 @@
 import { MarkdownView, Menu, Plugin, type TFile } from "obsidian";
-import type { IndicatorDisplay } from "./staleness-indicator";
-import type { CountDisplay } from "./staleness-count-indicator";
 
 const BAR_CLASS = "paniolo-action-bar";
 
@@ -13,6 +11,7 @@ interface MenuItem {
 
 /** Separator-separated groups inside the single Paniolo menu. */
 const MENU_SECTIONS: MenuItem[][] = [
+	[{ label: "view stats…", commandId: "view-stats" }],
 	[
 		{ label: "lint this page", commandId: "lint-this-page" },
 		{
@@ -71,11 +70,7 @@ interface CommandApi {
  * entries join MENU_SECTIONS.
  */
 export class ActionBar {
-	constructor(
-		private plugin: Plugin,
-		private indicatorForPath: (path: string) => IndicatorDisplay | null,
-		private countForPath: (path: string) => CountDisplay | null,
-	) {}
+	constructor(private plugin: Plugin) {}
 
 	register(): void {
 		const refresh = () => this.refreshAll();
@@ -101,8 +96,8 @@ export class ActionBar {
 		}
 	}
 
-	/** Refresh every open page after its staleness indicator changes. */
-	refreshAll(): void {
+	/** Refresh every open page when Obsidian changes the visible leaf. */
+	private refreshAll(): void {
 		for (const leaf of this.plugin.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (view instanceof MarkdownView) this.render(view);
@@ -154,20 +149,6 @@ export class ActionBar {
 			}
 			menu.showAtMouseEvent(ev);
 		});
-		const indicator = this.indicatorForPath(file.path);
-		if (indicator) {
-			bar.createSpan({
-				cls: `paniolo-staleness-label paniolo-staleness-${indicator.state}`,
-				text: indicator.text,
-			});
-		}
-		const count = this.countForPath(file.path);
-		if (count) {
-			bar.createSpan({
-				cls: `paniolo-count-badge paniolo-count-${count.source}`,
-				text: count.text,
-			});
-		}
 	}
 
 	/** Choose the placeholder label from the saved page's H2 headings. */

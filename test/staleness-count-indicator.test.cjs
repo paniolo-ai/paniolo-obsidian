@@ -39,10 +39,12 @@ test("a late count for page A cannot overwrite page B, and a ledger-only refresh
 	await first;
 	assert.equal(indicator.displayForPath("repo/wiki/a.md"), null);
 	assert.equal(indicator.displayForPath("repo/wiki/b.md").text, "2 open entries");
+	assert.equal(indicator.displayForPath("repo/wiki/b.md").count, 2);
 	const third = indicator.refresh();
 	requests[2]({ code: 0, stdout: JSON.stringify({ target: "wiki:wiki/b.md", status: "available", source: "active-writer", count: 0, generation: 4 }) });
 	await third;
 	assert.equal(indicator.displayForPath("repo/wiki/b.md").text, "0 open entries");
+	assert.equal(indicator.displayForPath("repo/wiki/b.md").count, 0);
 });
 
 test("a registered non-Git page reads its device-local ledger without a configured repo", async () => {

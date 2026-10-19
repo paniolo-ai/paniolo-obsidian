@@ -7,7 +7,11 @@ import { pageKeyForPath } from "./page-staleness-key";
 import { countFromCli, countLabel } from "./staleness-count";
 import { readVaultPage } from "./non-git-staleness";
 
-export type CountDisplay = { text: string; source: "active-writer" | "snapshot" | "unavailable" | "checking" };
+export type CountDisplay = {
+	text: string;
+	count: number | null;
+	source: "active-writer" | "snapshot" | "unavailable" | "checking";
+};
 
 const SAVE_DELAY_MS = 500;
 const LEDGER_POLL_MS = 20_000;
@@ -15,7 +19,6 @@ const COUNT_TIMEOUT_MS = 5_000;
 
 /** Keep the active page's ledger count independent of mtime-based signal caching. */
 export class StalenessCountIndicator {
-	private statusItem: HTMLElement | null = null;
 	private active: { path: string; display: CountDisplay } | null = null;
 	private revision = 0;
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -29,7 +32,6 @@ export class StalenessCountIndicator {
 
 	/** Refresh on navigation, saves, and periodic ledger changes without blocking the editor. */
 	register(): void {
-		this.statusItem = this.plugin.addStatusBarItem();
 		this.plugin.registerEvent(this.plugin.app.workspace.on("file-open", () => { void this.refresh(); }));
 		this.plugin.registerEvent(this.plugin.app.vault.on("modify", (file) => {
 			if (!(file instanceof TFile) || file.path !== this.plugin.app.workspace.getActiveFile()?.path) return;
@@ -56,7 +58,6 @@ export class StalenessCountIndicator {
 
 	private show(path: string, display: CountDisplay): void {
 		this.active = { path, display };
-		this.statusItem?.setText(`paniolo open entries: ${display.text}`);
 		this.onDisplayChange();
 	}
 
@@ -66,11 +67,10 @@ export class StalenessCountIndicator {
 		const request = ++this.revision;
 		if (!(file instanceof TFile) || file.extension !== "md") {
 			this.active = null;
-			this.statusItem?.setText("paniolo open entries: no Markdown page");
 			this.onDisplayChange();
 			return;
 		}
-		this.show(file.path, { text: "Checking…", source: "checking" });
+		this.show(file.path, { text: "Checking…", count: null, source: "checking" });
 		try {
 			const adapter = this.plugin.app.vault.adapter;
 			if (!(adapter instanceof FileSystemAdapter)) throw new Error("unsupported vault adapter");
@@ -95,11 +95,11 @@ export class StalenessCountIndicator {
 				throw new Error("page is not configured for staleness");
 			}
 			if (this.revision === request && this.plugin.app.workspace.getActiveFile()?.path === file.path) {
-				this.show(file.path, { text: countLabel(count), source: count.source });
+				this.show(file.path, { text: countLabel(count), count: count.count, source: count.source });
 			}
 		} catch {
 			if (this.revision === request && this.plugin.app.workspace.getActiveFile()?.path === file.path) {
-				this.show(file.path, { text: "Open entries unavailable", source: "unavailable" });
+				this.show(file.path, { text: "Open entries unavailable", count: null, source: "unavailable" });
 			}
 		}
 	}
