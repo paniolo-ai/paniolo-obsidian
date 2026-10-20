@@ -24,6 +24,7 @@ import {
 } from "./paniolo";
 import { ActionBar } from "./action-bar";
 import { StatsModal, type StatsSnapshot } from "./stats-modal";
+import { readSharedStats, sharedStatsRows, statusBarText, type SharedStats, type StatsRow } from "./shared-stats";
 import { StalenessIndicator } from "./staleness-indicator";
 import { StalenessCountIndicator } from "./staleness-count-indicator";
 import { PageStaleness } from "./page-staleness";
@@ -60,6 +61,10 @@ export default class PanioloPlugin extends Plugin {
 	settings: PanioloSettings = DEFAULT_SETTINGS;
 	private activityStatus = "ready";
 	private statsModal: StatsModal | null = null;
+	private statsStatusBar: HTMLElement | null = null;
+	private sharedStats: SharedStats | null = null;
+	private sharedStatsError: string | null = null;
+	private sharedStatsPolling = false;
 	private actionBar = new ActionBar(this);
 	private stalenessIndicator = new StalenessIndicator(
 		this,
@@ -101,6 +106,10 @@ export default class PanioloPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		this.statsStatusBar = this.addStatusBarItem();
+		this.statsStatusBar.setText("Paniolo: stats pending");
+		this.registerInterval(window.setInterval(() => { void this.pollSharedStats(); }, 15_000));
+		this.app.workspace.onLayoutReady(() => { void this.pollSharedStats(); });
 
 		this.registerEditorExtension([lintGutter()]);
 		this.addSettingTab(new PanioloSettingTab(this.app, this));
@@ -119,6 +128,7 @@ export default class PanioloPlugin extends Plugin {
 					() => { this.statsModal = null; },
 				);
 				this.statsModal.open();
+				void this.pollSharedStats();
 			},
 		});
 
@@ -253,6 +263,7 @@ export default class PanioloPlugin extends Plugin {
 		this.stalenessCountIndicator.dispose();
 		this.pageStaleness.dispose();
 		this.statsModal?.close();
+		this.statsStatusBar = null;
 		this.actionBar.removeAll();
 	}
 
@@ -355,6 +366,9 @@ export default class PanioloPlugin extends Plugin {
 		const activity = linting ? "linting…" : this.activityStatus === "linting…" ? "ready" : this.activityStatus;
 		const errors = findings?.filter((finding) => finding.severity === "error").length ?? 0;
 		const warnings = findings?.filter((finding) => finding.severity === "warn").length ?? 0;
+		const sharedStats: StatsRow[] = this.sharedStatsError
+			? [{ name: "Shared stats", value: this.sharedStatsError }]
+			: sharedStatsRows(this.sharedStats);
 		return {
 			page: path ?? "No Markdown page open",
 			activity,
@@ -363,6 +377,7 @@ export default class PanioloPlugin extends Plugin {
 			watchedChanges: path === null ? "No Markdown page" : this.stalenessIndicator.displayForPath(path)?.text ?? "Checking…",
 			openEntries: path === null ? "No Markdown page" : openEntries?.text ?? "Checking…",
 			pageReport: path === null ? "No Markdown page" : this.pageStaleness.displayStatus(),
+			sharedStats,
 			canCheckLint: path !== null && !linting,
 			linting,
 			canReviewStaleness: path !== null && openEntries?.count !== null && openEntries?.count !== undefined && openEntries.count > 0,
@@ -372,10 +387,51 @@ export default class PanioloPlugin extends Plugin {
 	/** Re-read status sources without launching lint or a paid page report. */
 	private async refreshStats(): Promise<void> {
 		await Promise.all([
+			this.pollSharedStats(),
 			this.stalenessIndicator.refreshActiveFile(true),
 			this.stalenessCountIndicator.refresh(),
 			this.pageStaleness.refreshActiveRun(true),
 		]);
+	}
+
+	/** Poll the local read-only projection without starting lint or a producer. */
+	private async pollSharedStats(): Promise<void> {
+		if (this.sharedStatsPolling) return;
+		const adapter = this.app.vault.adapter;
+		if (!(adapter instanceof FileSystemAdapter)) {
+			this.sharedStats = null;
+			this.sharedStatsError = "unsupported (non-local vault)";
+			this.renderSharedStats();
+			return;
+		}
+		const vaultRoot = adapter.getBasePath();
+		const file = this.app.workspace.getActiveFile();
+		const sourcePath = file instanceof TFile ? join(vaultRoot, file.path) : vaultRoot;
+		const configRoot = findConfigRoot(file instanceof TFile ? dirname(sourcePath) : sourcePath);
+		if (!configRoot) {
+			this.sharedStats = null;
+			this.sharedStatsError = "unsupported (no configured owner)";
+			this.renderSharedStats();
+			return;
+		}
+		this.sharedStatsPolling = true;
+		try {
+			this.sharedStats = await readSharedStats(resolveBinary(this.settings.binaryPath), configRoot, sourcePath);
+			this.sharedStatsError = null;
+		} catch {
+			this.sharedStats = null;
+			this.sharedStatsError = "unavailable (stats read failed)";
+		} finally {
+			this.sharedStatsPolling = false;
+			this.renderSharedStats();
+		}
+	}
+
+	/** Keep the action modal and status bar on the same Paniolo snapshot. */
+	private renderSharedStats(): void {
+		this.statsStatusBar?.setText(this.sharedStatsError
+			? `Paniolo: ${this.sharedStatsError}` : statusBarText(this.sharedStats));
+		this.statsModal?.render();
 	}
 
 	/** The live CodeMirror view for the active markdown editor, if any. */

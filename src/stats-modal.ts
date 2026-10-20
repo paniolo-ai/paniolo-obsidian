@@ -1,4 +1,5 @@
 import { Modal, Setting, type App } from "obsidian";
+import type { StatsRow } from "./shared-stats";
 
 export type StatsSnapshot = {
 	page: string;
@@ -8,6 +9,7 @@ export type StatsSnapshot = {
 	watchedChanges: string;
 	openEntries: string;
 	pageReport: string;
+	sharedStats?: StatsRow[];
 	canCheckLint: boolean;
 	linting: boolean;
 	canReviewStaleness: boolean;
@@ -55,6 +57,9 @@ export class StatsModal extends Modal {
 		new Setting(this.contentEl).setName("Watched changes").setDesc(snapshot.watchedChanges);
 		new Setting(this.contentEl).setName("Open staleness entries").setDesc(snapshot.openEntries);
 		new Setting(this.contentEl).setName("Page report").setDesc(snapshot.pageReport);
+		for (const row of snapshot.sharedStats ?? []) {
+			new Setting(this.contentEl).setName(row.name).setDesc(row.value);
+		}
 		if (snapshot.canReviewStaleness) {
 			new Setting(this.contentEl)
 				.setName("Review staleness")
