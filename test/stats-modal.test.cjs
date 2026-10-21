@@ -39,6 +39,7 @@ test("stats modal offers lint and refresh, and shows repair only for open entrie
 		page: "wiki/page.md", activity: "ready", activityTone: "normal", lint: "No findings",
 		watchedChanges: "No watched changes", openEntries: "0 open entries",
 		pageReport: "No report for this edit", canCheckLint: true, linting: false, canReviewStaleness: false,
+		sharedStats: [{ name: "Index activity", value: "available (cached-observation) · embedding" }],
 	};
 	const { StatsModal } = loadTs("stats-modal.ts", { obsidian: { Modal, Setting } });
 	const modal = new StatsModal({}, () => snapshot,
@@ -52,6 +53,8 @@ test("stats modal offers lint and refresh, and shows repair only for open entrie
 	assert.equal(lint.description, "No findings");
 	assert.equal(lint.button.text, "Check lint");
 	assert.equal(lint.button.disabled, false);
+	assert.equal(Setting.items.find((item) => item.name === "Index activity").description,
+		"available (cached-observation) · embedding");
 	lint.button.click();
 	Setting.items.find((item) => item.name === "Refresh stats").button.click();
 	await Promise.resolve();
