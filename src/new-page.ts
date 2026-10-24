@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Setting, TextComponent } from "obsidian";
 import { existsSync, readFileSync } from "fs";
-import { isAbsolute, join, relative } from "path";
+import { dirname, isAbsolute, join, relative } from "path";
 
 export interface WikiConfig {
 	/** Repo name — passed to `paniolo wiki --wiki`. */
@@ -21,45 +21,55 @@ interface RawPagePrefix {
 	statuses?: string[];
 }
 
+type RawWikiFields = {
+	root?: string;
+	pagePrefixes?: RawPagePrefix[];
+	domains?: string[];
+	fallbackStatuses?: string[];
+};
+
 /** Parse `paniolo.config.json` into the list of configured wikis. */
 export function loadWikis(configRoot: string): WikiConfig[] {
 	try {
 		const raw = JSON.parse(
 			readFileSync(join(configRoot, "paniolo.config.json"), "utf-8"),
 		) as {
+			name?: string;
+			wiki?: RawWikiFields & { wikis?: (RawWikiFields & { name?: string })[] };
 			repos?: Record<
 				string,
 				{
 					path?: string;
-					wiki?: {
-						pagePrefixes?: RawPagePrefix[];
-						domains?: string[];
-						fallbackStatuses?: string[];
-					};
+					wiki?: RawWikiFields;
 				}
 			>;
 		};
 		const out: WikiConfig[] = [];
-		for (const [name, repo] of Object.entries(raw.repos ?? {})) {
-			if (!repo.wiki || !repo.path) continue;
-			const prefixes = repo.wiki.pagePrefixes ?? [];
-			const statuses = new Set<string>(repo.wiki.fallbackStatuses ?? []);
-			for (const p of prefixes) for (const s of p.statuses ?? []) statuses.add(s);
+		const addWiki = (name: string, repoPath: string, wikiRoot: string, wiki: RawWikiFields): void => {
+			const prefixes = wiki.pagePrefixes ?? [];
+			const statuses = new Set<string>(wiki.fallbackStatuses ?? []);
+			for (const prefix of prefixes) for (const status of prefix.statuses ?? []) statuses.add(status);
 			out.push({
 				name,
-				repoPath: repo.path,
-				wikiRoot: `${repo.path}/wiki`,
+				repoPath,
+				wikiRoot,
 				kinds: prefixes
-					.filter((p): p is { kind: string; prefix: string } => !!p.kind && !!p.prefix)
-					.map((p) => ({ kind: p.kind, prefix: p.prefix })),
-				// Declared domains win; otherwise the CLI derives the
-				// valid set from domains already used in wiki/log.md —
-				// NOT from raw/ subtrees (those are source snapshots).
-				domains:
-					repo.wiki.domains ??
-					listLogDomains(configRoot, repo.path),
+					.filter((prefix): prefix is { kind: string; prefix: string } => !!prefix.kind && !!prefix.prefix)
+					.map((prefix) => ({ kind: prefix.kind, prefix: prefix.prefix })),
+				domains: wiki.domains ?? listLogDomains(configRoot, wikiRoot),
 				statuses: [...statuses].sort(),
 			});
+		};
+		if (raw.name && raw.wiki?.root) {
+			addWiki(raw.name, ".", raw.wiki.root, raw.wiki);
+		}
+		for (const wiki of raw.wiki?.wikis ?? []) {
+			if (!wiki.name || !wiki.root) continue;
+			addWiki(wiki.name, dirname(wiki.root), wiki.root, wiki);
+		}
+		for (const [name, repo] of Object.entries(raw.repos ?? {})) {
+			if (!repo.wiki || !repo.path) continue;
+			addWiki(name, repo.path, join(repo.path, repo.wiki.root ?? "wiki").replace(/\\/g, "/"), repo.wiki);
 		}
 		return out;
 	} catch {
@@ -68,8 +78,8 @@ export function loadWikis(configRoot: string): WikiConfig[] {
 }
 
 /** Distinct domains from `## [date] verb | domain | title` log headers. */
-function listLogDomains(configRoot: string, repoPath: string): string[] {
-	const logPath = join(configRoot, repoPath, "wiki", "log.md");
+function listLogDomains(configRoot: string, wikiRoot: string): string[] {
+	const logPath = join(configRoot, wikiRoot, "log.md");
 	if (!existsSync(logPath)) return [];
 	try {
 		const out = new Set<string>();

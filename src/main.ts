@@ -19,6 +19,7 @@ import {
 	PanioloNotFoundError,
 	PanioloTimeoutError,
 	findConfigRoot,
+	registerVault,
 	resolveBinary,
 	runPaniolo,
 } from "./paniolo";
@@ -103,13 +104,17 @@ export default class PanioloPlugin extends Plugin {
 	private lintTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private lintRevisions = new Map<string, number>();
 	private lintingRevisions = new Map<string, number>();
+	private vaultSetupOffered = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		this.statsStatusBar = this.addStatusBarItem();
 		this.statsStatusBar.setText("Paniolo: stats pending");
 		this.registerInterval(window.setInterval(() => { void this.pollSharedStats(); }, 15_000));
-		this.app.workspace.onLayoutReady(() => { void this.pollSharedStats(); });
+		this.app.workspace.onLayoutReady(() => {
+			void this.pollSharedStats();
+			this.offerVaultSetup();
+		});
 
 		this.registerEditorExtension([lintGutter()]);
 		this.addSettingTab(new PanioloSettingTab(this.app, this));
@@ -265,6 +270,40 @@ export default class PanioloPlugin extends Plugin {
 		this.statsModal?.close();
 		this.statsStatusBar = null;
 		this.actionBar.removeAll();
+	}
+
+	/** Offer registration once per plugin session when the local vault has no config. */
+	private offerVaultSetup(): void {
+		if (this.vaultSetupOffered) return;
+		const adapter = this.app.vault.adapter;
+		if (!(adapter instanceof FileSystemAdapter)) return;
+		const vaultRoot = adapter.getBasePath();
+		if (findConfigRoot(vaultRoot)) return;
+		this.vaultSetupOffered = true;
+		new ConfirmModal(
+			this.app,
+			"Set up Paniolo for this vault",
+			"Register this vault's Markdown pages with Paniolo? The config stays in this vault.",
+			"Set up",
+			() => { void this.setupVault(vaultRoot); },
+		).open();
+	}
+
+	/** Let the CLI write the vault config, then check the open page. */
+	private async setupVault(vaultRoot: string): Promise<void> {
+		try {
+			const registration = await registerVault(resolveBinary(this.settings.binaryPath), vaultRoot);
+			new Notice(`paniolo: ${registration.changed ? "registered" : "already registered"} ${registration.name}`);
+			void this.pollSharedStats();
+			if (this.app.workspace.getActiveFile()?.extension === "md") {
+				await this.lintActiveFile();
+			}
+		} catch (error: unknown) {
+			const detail = error instanceof PanioloNotFoundError
+				? "binary not found — install Paniolo or set its path in plugin settings"
+				: error instanceof Error ? error.message : String(error);
+			new Notice(`paniolo: vault setup failed — ${detail}`, 8000);
+		}
 	}
 
 	/** Route registered non-Git pages to their local writer ledger. */
