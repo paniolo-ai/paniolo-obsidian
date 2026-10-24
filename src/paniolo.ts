@@ -1,11 +1,55 @@
 import { execFile } from "child_process";
 import { existsSync } from "fs";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
 
 export interface PanioloResult {
 	stdout: string;
 	stderr: string;
 	code: number;
+}
+
+export type VaultRegistration = {
+	name: string;
+	root: string;
+	changed: boolean;
+};
+
+/** Ask the CLI to register a vault and return its structured result. */
+export async function registerVault(
+	binary: string,
+	vaultRoot: string,
+	run: typeof runPaniolo = runPaniolo,
+): Promise<VaultRegistration> {
+	const result = await run(
+		binary,
+		["wiki", "init", "--root", vaultRoot, "--slug", basename(vaultRoot), "--json"],
+		vaultRoot,
+	);
+	if (result.code !== 0) {
+		throw new Error(result.stderr.trim() || `paniolo exited with code ${result.code}`);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(result.stdout);
+	} catch {
+		throw new Error("paniolo returned invalid registration JSON");
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		throw new Error("paniolo returned an invalid registration");
+	}
+	const registration = parsed as Record<string, unknown>;
+	if (
+		typeof registration.name !== "string" ||
+		typeof registration.root !== "string" ||
+		typeof registration.changed !== "boolean"
+	) {
+		throw new Error("paniolo returned an invalid registration");
+	}
+	return {
+		name: registration.name,
+		root: registration.root,
+		changed: registration.changed,
+	};
 }
 
 export class PanioloNotFoundError extends Error {
