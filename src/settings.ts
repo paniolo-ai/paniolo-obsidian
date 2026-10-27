@@ -3,6 +3,7 @@ import type PanioloPlugin from "./main";
 import type { PageReviewTracking } from "./page-staleness-completion";
 import type { VaultReviewPlan } from "./non-git-review";
 import { readVaultWriterState } from "./non-git-vault";
+import { importLicenseToken, licenseDescription, readLicenseStatus } from "./license";
 
 export interface PanioloSettings {
 	/** Explicit path to the paniolo binary; empty resolves `paniolo` via PATH. */
@@ -51,6 +52,40 @@ export class PanioloSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		const cwd = this.app.vault.adapter instanceof FileSystemAdapter
+			? this.app.vault.adapter.getBasePath() : process.cwd();
+		let tokenInput: HTMLInputElement;
+		const license = new Setting(containerEl)
+			.setName("Wiki Pro entitlement")
+			.setDesc("Checking the local entitlement…");
+		license.addText((text) => {
+			text.setPlaceholder("Paste signed entitlement JSON");
+			text.inputEl.type = "password";
+			tokenInput = text.inputEl;
+		});
+		const refreshLicense = async (): Promise<void> => {
+			try {
+				const report = await readLicenseStatus(this.plugin.settings.binaryPath, cwd);
+				license.setDesc(licenseDescription(report));
+			} catch {
+				license.setDesc("Entitlement status unavailable. Check the Paniolo binary path.");
+			}
+		};
+		license.addButton((button) => button.setButtonText("Import").onClick(() => {
+			const token = tokenInput.value;
+			tokenInput.value = "";
+			if (!token.trim()) return;
+			void (async (): Promise<void> => {
+				try {
+					await importLicenseToken(this.plugin.settings.binaryPath, cwd, token);
+					await refreshLicense();
+				} catch {
+					license.setDesc("Paniolo rejected this entitlement. Free features remain available.");
+				}
+			})();
+		}));
+		void refreshLicense();
 
 		const adapter = this.app.vault.adapter;
 		const writer = new Setting(containerEl)

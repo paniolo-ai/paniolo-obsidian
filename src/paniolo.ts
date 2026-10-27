@@ -90,15 +90,17 @@ export function findConfigRoot(startDir: string): string | null {
  * Run `paniolo <args>` and capture output. A nonzero exit code is not an
  * error — paniolo exits nonzero to report findings — so only spawn
  * failures and timeouts reject.
+ * Optional input is sent through stdin, never placed in the argument list.
  */
 export function runPaniolo(
 	binary: string,
 	args: string[],
 	cwd: string,
 	timeoutMs = 120_000,
+	input?: string,
 ): Promise<PanioloResult> {
 	return new Promise((resolve, reject) => {
-		execFile(
+		const child = execFile(
 			binary,
 			args,
 			{
@@ -128,5 +130,6 @@ export function runPaniolo(
 				});
 			},
 		);
+		if (input !== undefined) child.stdin?.end(input);
 	});
 }
